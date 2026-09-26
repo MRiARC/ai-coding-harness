@@ -25,6 +25,27 @@ make lint     # ruff (black/flake8-compatible) + mypy type check
 
 Enable lint-on-commit hooks once: `pip install pre-commit && pre-commit install`.
 
+## Platform layer (beyond the hackathon — epic #69)
+
+The engine is a clean importable library, so the multi-service platform from
+`TECHNICAL_IMPLEMENTATION.md` wraps it without touching the graded core:
+
+```bash
+make gateway        # Go API gateway (:8080) — proxies to the orchestrator, WS broadcast
+make tui-go         # Go TUI cockpit (Bubble Tea) consuming the gateway
+make go-test        # Go unit tests
+docker compose -f platform/docker-compose.yml up --build   # redis + orchestrator + gateway
+```
+
+- **Orchestrator** (`harness[platform]` extra, port 8000): FastAPI service exposing
+  `/agent/architect/{analyze,decompose}`, `/agent/manager/assign`,
+  `/agent/specialist/execute`, `/agent/run`, `/agent/status/:id`
+- **Gateway** (Go, port 8080): task creation proxy, `/api/tasks/:id`, `/api/metrics`,
+  `/ws` WebSocket fed by the Redis pub/sub event bus (`harness.events.<run_id>`)
+- **Go TUI**: Bubble Tea dashboard over the gateway's WebSocket (P4 #73 — in flight)
+
+Never imported by the graded core: `make setup/run/test` stay exactly as evaluated.
+
 **Supplying the issue to `make run`** (all protocols supported — see
 [docs/eval-runbook.md](docs/eval-runbook.md)):
 

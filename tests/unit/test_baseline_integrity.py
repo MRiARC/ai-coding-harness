@@ -82,8 +82,10 @@ def test_changed_files_from_diff() -> None:
 
 def test_classify_diff_flags_test_edits_and_debug() -> None:
     diff = (
-        "diff --git a/src/app.py\n+++ b/src/app.py\n+print('debug')\n"
-        "diff --git a/tests/test_app.py\n+++ b/tests/test_app.py\n+assert True\n"
+        "diff --git a/src/app.py b/src/app.py\n--- a/src/app.py\n+++ b/src/app.py\n"
+        "+print('debug')\n"
+        "diff --git a/tests/test_app.py b/tests/test_app.py\n--- a/tests/test_app.py\n"
+        "+++ b/tests/test_app.py\n+assert True\n"
     )
     report = classify_diff(diff)
     assert report.violations == ["test file modified without plan allowance: tests/test_app.py"]
@@ -174,14 +176,34 @@ async def test_baseline_flags_new_regression(repro_repo: Path) -> None:
 
 
 async def test_integrity_stage_blocks_test_edits(repro_repo: Path) -> None:
+    """Modifying a *tracked* test file is the tamper case: blocked."""
     verification = VerificationPipeline(repro_repo)
-    diff = "diff --git a/tests/test_greet.py\n+++ b/tests/test_greet.py\n+assert True\n"
+    diff = (
+        "diff --git a/tests/test_greet.py b/tests/test_greet.py\n"
+        "--- a/tests/test_greet.py\n+++ b/tests/test_greet.py\n"
+        "-assert greet() == 'hello'\n+assert True\n"
+    )
     results = await verification.run(diff, PLAN, architect=None)
     assert results[0].name == "1-integrity"
     assert not results[0].passed
     assert "test file modified" in results[0].detail
     # blocking failure stopped the run
     assert [r.name for r in results][-1] == "1-integrity"
+
+
+async def test_integrity_stage_allows_new_test_creation(repro_repo: Path) -> None:
+    """Greenfield authoring (new test file from /dev/null) is allowed with a
+    warning — creation is the job, tampering is the crime."""
+    verification = VerificationPipeline(repro_repo)
+    diff = (
+        "diff --git a/tests/test_new.py b/tests/test_new.py\n"
+        "--- /dev/null\n+++ b/tests/test_new.py\n"
+        "+def test_new():\n+    assert True\n"
+    )
+    results = await verification.run(diff, PLAN, architect=None)
+    integrity = results[0]
+    assert integrity.passed
+    assert any("new test file(s) authored" in w for w in integrity.evidence["warnings"])
 
 
 async def test_integrity_stage_allows_planned_test_edits(repro_repo: Path) -> None:

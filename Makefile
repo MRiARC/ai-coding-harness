@@ -5,7 +5,7 @@ VENV := .venv
 PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-.PHONY: setup run test bench-tokens clean lint typecheck
+.PHONY: setup run test bench-tokens clean lint typecheck gateway tui-go compose-up compose-down
 
 setup:
 	@echo ">> Setting up environment..."
@@ -32,6 +32,22 @@ lint:
 
 typecheck:
 	$(VENV)/bin/mypy
+
+# --- Platform layer (issue #69: Go gateway + Go TUI + compose) ---------------
+gateway:
+	cd gateway && go build -o ../bin/foreman-gateway . && ./../bin/foreman-gateway
+
+tui-go:
+	cd gateway && go build -o ../bin/foreman-tui ./cmd/tui && ./../bin/foreman-tui
+
+go-test:
+	cd gateway && go test ./... && go vet ./...
+
+compose-up:
+	docker compose -f platform/docker-compose.yml up --build
+
+compose-down:
+	docker compose -f platform/docker-compose.yml down
 
 clean:
 	rm -rf $(VENV) .pytest_cache .mypy_cache .ruff_cache .coverage coverage.xml htmlcov dist build *.egg-info src/*.egg-info

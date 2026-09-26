@@ -148,3 +148,48 @@ class GitDiffTool(Tool):
 
     def execute(self, ref: str = "HEAD", **_: Any) -> ToolResult:
         return _git(self._root, "diff", ref)
+
+
+class GitAddTool(Tool):
+    """git_add: intent-to-add paths so new files reach the patch (tier 2).
+
+    Uses `git add -N` (intent-to-add): untracked files become visible to
+    `git diff HEAD` — the evidence pack's patch — without staging content
+    or touching the index state the evaluator may inspect.
+    """
+
+    name, tier = "git_add", ToolTier.DEVELOPMENT
+    description = (
+        "Record new/changed paths so they appear in the diff "
+        "(intent-to-add; never stages or commits). Args: paths (array) or all=true."
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "paths": {"type": "array", "items": {"type": "string"}},
+            "all": {"type": "boolean"},
+        },
+    }
+
+    def __init__(self, repo_root: Path) -> None:
+        self._root = repo_root
+
+    def validate_input(self, arguments: dict[str, Any]) -> list[str]:
+        if arguments.get("all"):
+            return []
+        paths = arguments.get("paths")
+        if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
+            return ["provide 'paths' (array of strings) or all=true"]
+        return []
+
+    def check_permissions(self, context: dict[str, Any]) -> bool:
+        return context.get("model_tier", 1) >= self.tier.value
+
+    def execute(self, paths: list[str] | None = None, all: bool = False, **_: Any) -> ToolResult:
+        argv = ["add", "--intent-to-add"]
+        if all or not paths:
+            argv.append("-A")
+        else:
+            argv.append("--")
+            argv.extend(paths)
+        return _git(self._root, *argv)

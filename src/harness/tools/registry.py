@@ -11,9 +11,15 @@ from pathlib import Path
 from harness.tools.base import Tool
 from harness.tools.editing import ApplyEditTool, SearchTextTool, SyntaxCheckTool
 from harness.tools.execution import CodeExecutionTool, RunTestsTool, SecurityScanTool
-from harness.tools.filesystem import ListDirTool, ReadFileTool
+from harness.tools.filesystem import (
+    GlobTool,
+    ListDirTool,
+    ReadFileTool,
+    WriteFileTool,
+)
+from harness.tools.graph import RepoGraphTool
 from harness.tools.knowledge import KnowledgeSearchTool
-from harness.tools.vcs import GitBranchTool, GitDiffTool, GitLogTool, GitStatusTool
+from harness.tools.vcs import GitAddTool, GitBranchTool, GitDiffTool, GitLogTool, GitStatusTool
 
 
 def build_default_tools(repo_root: Path) -> list[Tool]:
@@ -27,8 +33,12 @@ def build_default_tools(repo_root: Path) -> list[Tool]:
         SearchTextTool(root),
         GitStatusTool(root),
         GitLogTool(root),
+        GlobTool(root),
+        RepoGraphTool(root),
         # Tier 2 - development operations (issue 3.2)
         ApplyEditTool(root),
+        WriteFileTool(root),
+        GitAddTool(root),
         SyntaxCheckTool(root),
         RunTestsTool(root),
         GitBranchTool(root),
@@ -44,9 +54,13 @@ TOOL_NAMES: dict[str, int] = {
     "search_knowledge": 1,
     "filesystem_list": 1,
     "search_text": 1,
+    "glob_files": 1,
+    "repo_graph": 1,
     "git_status": 1,
     "git_log": 1,
+    "filesystem_write": 2,
     "apply_edit": 2,
+    "git_add": 2,
     "syntax_check": 2,
     "run_tests": 2,
     "git_branch": 2,
@@ -61,4 +75,6 @@ TOOL_ALIASES: dict[str, str] = {
     "read_file": "filesystem_read",
     "list_dir": "filesystem_list",
     "grep": "search_text",
+    "write_file": "filesystem_write",
+    "symbols": "repo_graph",
 }

@@ -1,0 +1,41 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: platform/orchestrator.Dockerfile
+    environment:
+      - AI_API_KEY=${AI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - HARNESS_CONFIG=/workspace/harness.yaml
+    volumes:
+      - ..:/workspace
+    working_dir: /workspace
+    ports:
+      - "8000:8000"
+    command: uvicorn harness.service.app:create_app --factory --host 0.0.0.0 --port 8000
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: platform/gateway.Dockerfile
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+      - REDIS_ADDR=redis:6379
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - orchestrator
