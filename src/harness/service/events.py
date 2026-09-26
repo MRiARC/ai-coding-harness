@@ -55,7 +55,7 @@ class RedisEventPublisher:
         channel = f"{CHANNEL_PREFIX}.{run_id}"
         try:
             client.publish(channel, json.dumps(event, sort_keys=True, default=str))
-        except Exception as exc:  # noqa: BLE001 - pub/sub must never break a run
+        except Exception as exc:
             logger.warning("redis publish failed", channel=channel, error=str(exc)[:200])
 
     def sink_for(self, run_id: str) -> Any:

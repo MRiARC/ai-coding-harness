@@ -7,9 +7,11 @@ readable summary. Judges - and our own debugging - can replay everything.
 
 from __future__ import annotations
 
+import contextlib
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 class EvidencePack:
@@ -19,8 +21,9 @@ class EvidencePack:
     layer (P3, issue #72) uses it to publish to Redis pub/sub.
     """
 
-    def __init__(self, results_root: Path, run_id: str,
-                 event_sink: "Callable[[dict], None] | None" = None) -> None:
+    def __init__(
+        self, results_root: Path, run_id: str, event_sink: Callable[[dict], None] | None = None
+    ) -> None:
         self.run_id = run_id
         self.path = Path(results_root) / run_id
         self.path.mkdir(parents=True, exist_ok=True)
@@ -40,10 +43,8 @@ class EvidencePack:
         with (self.path / "trace.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, sort_keys=True, default=str) + "\n")
         if self._event_sink is not None:
-            try:
+            with contextlib.suppress(Exception):  # the sink must never break a run
                 self._event_sink(event)
-            except Exception:  # noqa: BLE001 - the sink must never break a run
-                pass
 
     def patch(self, diff: str) -> Path:
         return self._write("patch.diff", diff)
