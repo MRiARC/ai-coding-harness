@@ -126,6 +126,14 @@ class AgentConfig(BaseModel):
     model_tier: int = Field(
         default=3, ge=1, le=4, description="Capability tier used by tool permission gating."
     )
+    stale_tool_results: int = Field(
+        default=6,
+        ge=0,
+        description=(
+            "Tool results outside the newest N are assembled as one-line stubs "
+            "(lossless in the store; M5 issue #61)."
+        ),
+    )
     enabled: bool = True
 
 

@@ -97,3 +97,22 @@ make test            ✅ 329 passed, 100.00% coverage enforced
 The rehearsal caught and fixed three real defects (doctor's unconditional
 key warning, a test patching the wrong namespace, stdin fakes missing
 `read()` under piped-stdin inheritance) - which is exactly why it exists.
+
+## Token benchmark (M5, issue #64)
+
+`make bench-tokens` (or `harness bench`) runs the offline fixture end-to-end
+through the real pipeline — FakeProvider, no credentials — and prints the
+per-agent token spend. It is the measuring stick for every context-management
+change (issues #60–#63):
+
+```bash
+harness bench --save-baseline          # record current spend (docs/evidence/bench-baseline.json)
+# ... make your optimization ...
+harness bench                          # compare against the saved baseline
+harness bench --ref feat/milestone-4   # or A/B directly against any git ref
+harness bench --json-out delta.json    # machine-readable per-agent delta
+```
+
+Baseline `--ref` uses a detached temporary git worktree and cleans it up.
+Token counts come from the deterministic estimator over byte-identical
+prompts, so identical code produces identical numbers on the same machine.

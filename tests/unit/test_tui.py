@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from harness.engine.evidence import EvidencePack
-from harness.ui.tui import format_event, latest_evidence, status_line
+from harness.ui.tui import CockpitApp, format_event, latest_evidence, status_line
 
 
 def test_format_event_variants() -> None:
@@ -72,3 +72,42 @@ def test_latest_evidence_picks_recent(tmp_path: Path) -> None:
     new = EvidencePack(tmp_path / "results", "run-new")
     new.trace({"event": "y"})
     assert latest_evidence(tmp_path / "results").run_id == "run-new"
+
+
+def test_status_line_prefers_token_report_total() -> None:
+    events = [{"run_id": "r1", "usage": {"total_tokens": 7}}]
+    assert "tokens: 112229" in status_line(events, tokens_total=112229)
+    assert "tokens: 7" in status_line(events)  # fallback: per-event sum
+
+
+def test_cockpit_reads_tokens_from_pack_report(tmp_path: Path) -> None:
+    """The meter uses token-report.json (authoritative), not event sums."""
+    from harness.ui.tui import CockpitApp
+
+    pack = EvidencePack(tmp_path / "results", "run-tok")
+    pack.trace({"event": "run.start", "run_id": "run-tok"})
+    pack.token_report({"tokens_total": 112229})
+    app = CockpitApp(pack)
+    app.refresh_trace() if False else None
+    # _tokens_from_report is lifecycle-free: call it directly
+    assert app._tokens_from_report() == 112229
+    empty = CockpitApp(EvidencePack(tmp_path / "results", "run-empty"))
+    assert empty._tokens_from_report() is None
+    assert CockpitApp(None)._tokens_from_report() is None
+
+
+def test_cockpit_tolerates_corrupt_token_report(tmp_path: Path) -> None:
+    from harness.ui.tui import CockpitApp
+
+    pack = EvidencePack(tmp_path / "results", "run-bad")
+    (pack.path / "token-report.json").write_text("{corrupt")
+    assert CockpitApp(pack)._tokens_from_report() is None
+
+
+def test_cockpit_renders_report_tokens_in_status(tmp_path: Path) -> None:
+    pack = EvidencePack(tmp_path / "results", "run-tok2")
+    pack.trace({"event": "run.start", "run_id": "run-tok2"})
+    pack.token_report({"tokens_total": 5000})
+    app = CockpitApp(pack)
+    events = app._pack.read_trace()
+    assert "tokens: 5000" in status_line(events, tokens_total=app._tokens_from_report())
