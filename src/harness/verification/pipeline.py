@@ -89,7 +89,7 @@ class VerificationPipeline:
         self, diff: str, plan: Plan | None, architect: ArchitectAgent | None
     ) -> StageResult:
         tool = RunTestsTool(self._root)
-        result = tool.execute()
+        result = await tool.execute_async()
         return StageResult(
             "2-local-tests",
             result.success,

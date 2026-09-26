@@ -29,7 +29,7 @@ from harness.infrastructure.model_providers import (
     ModelResponse,
 )
 from harness.orchestration.messages import AgentStatus, ErrorEscalation, Severity, StatusUpdate
-from harness.tools.base import Tool, ToolResult, ToolTier
+from harness.tools.base import AsyncExecutableTool, Tool, ToolResult, ToolTier
 
 logger = get_logger(__name__)
 
@@ -381,6 +381,8 @@ class LLMAgent(BaseAgent):
 
 async def _call_tool(tool: Tool, arguments: dict[str, Any]) -> ToolResult:
     try:
+        if isinstance(tool, AsyncExecutableTool):
+            return await tool.execute_async(**arguments)
         return tool.execute(**arguments)
     except Exception as exc:
         return ToolResult(success=False, error=f"tool crashed: {exc}")
