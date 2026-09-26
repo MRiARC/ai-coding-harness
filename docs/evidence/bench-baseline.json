@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "outcome_line": "VERIFIED: all tasks completed and gates passed",
+  "run_id": "2ed36dd65c70",
+  "token_report": {
+    "budget_total": 2000000,
+    "correlation_id": "2ed36dd65c70",
+    "governor_mode": "normal",
+    "per_agent_efficiency": {
+      "arch-1": 0.0,
+      "ver-1": 8.475
+    },
+    "per_agent_tokens": {
+      "arch-1": {
+        "completion_tokens": 124,
+        "prompt_tokens": 594,
+        "total_tokens": 718
+      },
+      "ver-1": {
+        "completion_tokens": 11,
+        "prompt_tokens": 107,
+        "total_tokens": 118
+      }
+    },
+    "results": [
+      {
+        "artifacts": [],
+        "error": null,
+        "success": true,
+        "summary": "TASK_COMPLETE: verified greet() returns hello",
+        "task_id": "st-1"
+      }
+    ],
+    "stage_durations": {
+      "architect": 0.003,
+      "specialists": 0.002,
+      "verification": 0.231
+    },
+    "tasks_completed": 1,
+    "tasks_failed": 0,
+    "tasks_per_1k_tokens": 1.196,
+    "tokens_total": 836
+  }
+}

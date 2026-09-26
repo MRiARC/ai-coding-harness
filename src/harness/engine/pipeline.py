@@ -107,7 +107,12 @@ class HarnessPipeline:
                     agent_id=agent_config.agent_id,
                     model_config=model_config,
                     tools=self._tools,
-                    context_window=StoreWindow(self._store, agent_config.agent_id, "planning"),
+                    context_window=StoreWindow(
+                        self._store,
+                        agent_config.agent_id,
+                        "planning",
+                        stale_tool_results=agent_config.stale_tool_results,
+                    ),
                     provider=self._provider,
                     store=self._store,
                     governor=self._placeholder_governor,
@@ -120,7 +125,12 @@ class HarnessPipeline:
                     agent_id=agent_config.agent_id,
                     model_config=model_config,
                     tools=self._tools,
-                    context_window=StoreWindow(self._store, agent_config.agent_id, "coordination"),
+                    context_window=StoreWindow(
+                        self._store,
+                        agent_config.agent_id,
+                        "coordination",
+                        stale_tool_results=agent_config.stale_tool_results,
+                    ),
                     provider=self._provider,
                     store=self._store,
                     governor=self._placeholder_governor,
@@ -137,6 +147,7 @@ class HarnessPipeline:
                 governor=self._placeholder_governor,  # replaced per-run
                 tools=self._tools,
                 model_tier=agent_config.model_tier,
+                stale_tool_results=agent_config.stale_tool_results,
             )
             self._agents[agent.agent_id] = agent
             from harness.agents.prompts import ROLE_PRESETS

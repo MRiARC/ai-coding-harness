@@ -197,6 +197,24 @@ def replay_command(run_id: str | None) -> int:
     return 0
 
 
+def bench_command(args: argparse.Namespace) -> int:
+    """`harness bench`: offline A/B token benchmark (milestone 5, issue 5.5)."""
+    from harness.bench.tokens import main as bench_main
+
+    argv = []
+    if args.issue:
+        argv += ["--issue", args.issue]
+    if args.ref:
+        argv += ["--ref", args.ref]
+    if args.save_baseline:
+        argv.append("--save-baseline")
+    if args.baseline_path:
+        argv += ["--baseline-path", args.baseline_path]
+    if args.json_out:
+        argv += ["--json-out", args.json_out]
+    return bench_main(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="harness", description=__doc__)
     parser.add_argument("--version", action="version", version=f"harness {__version__}")
@@ -220,6 +238,16 @@ def main(argv: list[str] | None = None) -> int:
     solve_parser.add_argument("--issue", help="issue text inline")
     solve_parser.add_argument("--issue-file", help="path to a file holding the issue text")
     solve_parser.add_argument("--repo", help="target repository root (default: cwd)")
+    bench_parser = subparsers.add_parser(
+        "bench", help="offline A/B token benchmark on the fixture repo"
+    )
+    bench_parser.add_argument("--issue", help="override the fixture issue text")
+    bench_parser.add_argument("--ref", help="git ref measured as the baseline side")
+    bench_parser.add_argument(
+        "--save-baseline", action="store_true", help="record current spend as the baseline"
+    )
+    bench_parser.add_argument("--baseline-path", help="baseline JSON path override")
+    bench_parser.add_argument("--json-out", help="write full delta JSON to this path")
 
     args = parser.parse_args(argv)
     if args.command == "doctor":
@@ -228,6 +256,8 @@ def main(argv: list[str] | None = None) -> int:
         return replay_command(args.run_id)
     if args.command == "solve":
         return solve_command(args)
+    if args.command == "bench":
+        return bench_command(args)
     return run_command()
 
 

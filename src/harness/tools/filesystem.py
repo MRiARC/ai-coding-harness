@@ -6,6 +6,7 @@ line-numbered and size-capped so tool output stays budget-friendly.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -134,6 +135,25 @@ class ListDirTool(Tool):
         return ToolResult(
             success=True, output="\n".join([header, *entries]), data={"count": len(entries)}
         )
+
+
+COMPACT_SUMMARY_MAX_CHARS = 4000
+
+
+def compact_repo_summary(
+    summary: dict[str, Any], max_chars: int = COMPACT_SUMMARY_MAX_CHARS
+) -> str:
+    """Compact, bounded serialization of a repo summary for prompts (#63).
+
+    Empty fields are dropped (they carry no planning signal) and the result
+    is hard-capped so a large repository can never balloon the Architect's
+    analysis prompt. Truncation is explicit, never silent.
+    """
+    lean = {k: v for k, v in summary.items() if v}
+    text = json.dumps(lean, sort_keys=True)
+    if len(text) > max_chars:
+        text = text[:max_chars] + f"... [repo summary truncated at {max_chars} chars]"
+    return text
 
 
 def summarize_repository(repo_root: Path) -> dict[str, Any]:

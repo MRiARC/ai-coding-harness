@@ -9,6 +9,7 @@ health summary otherwise.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -35,14 +36,19 @@ def format_event(event: dict[str, Any]) -> str:
     return f"[{run_id}] {kind}"
 
 
-def status_line(events: list[dict[str, Any]]) -> str:
-    """Render the status meter line (pure; testable without Textual)."""
-    tokens = 0
-    for event in events:
-        usage = event.get("usage") or {}
-        tokens += int(usage.get("total_tokens", 0))
+def status_line(events: list[dict[str, Any]], tokens_total: int | None = None) -> str:
+    """Render the status meter line (pure; testable without Textual).
+
+    `tokens_total` comes from the pack's token-report.json when present —
+    it is the authoritative spend; the per-event sum is the fallback.
+    """
+    if tokens_total is None:
+        tokens_total = 0
+        for event in events:
+            usage = event.get("usage") or {}
+            tokens_total += int(usage.get("total_tokens", 0))
     run_id = events[0].get("run_id", "-") if events else "(none)"
-    return f"run: {run_id}  events: {len(events)}  tokens: {tokens}"
+    return f"run: {run_id}  events: {len(events)}  tokens: {tokens_total}"
 
 
 class CockpitApp(App[None]):  # pragma: no cover - Textual lifecycle, exercised manually
@@ -80,13 +86,29 @@ class CockpitApp(App[None]):  # pragma: no cover - Textual lifecycle, exercised 
         self.events = self._pack.read_trace() if self._pack else []
         for event in self.events:
             self.query_one("#activity", RichLog).write(format_event(event))
-        self.query_one("#status", Static).update(status_line(self.events))
+        self.query_one("#status", Static).update(
+            status_line(self.events, tokens_total=self._tokens_from_report())
+        )
+
+    def _tokens_from_report(self) -> int | None:
+        """Authoritative spend from the pack's token-report.json, if present."""
+        if self._pack is None:
+            return None
+        report = self._pack.path / "token-report.json"
+        if not report.exists():
+            return None
+        try:
+            return int(json.loads(report.read_text(encoding="utf-8"))["tokens_total"])
+        except (json.JSONDecodeError, KeyError, ValueError, OSError):
+            return None
 
     def add_event(self, event: dict[str, Any]) -> None:
         """Render one live trace event; also updates the status meter."""
         self.events.append(event)
         self.query_one("#activity", RichLog).write(format_event(event))
-        self.query_one("#status", Static).update(status_line(self.events))
+        self.query_one("#status", Static).update(
+            status_line(self.events, tokens_total=self._tokens_from_report())
+        )
 
 
 def latest_evidence(results_root: Path) -> EvidencePack | None:

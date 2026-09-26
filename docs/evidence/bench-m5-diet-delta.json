@@ -1,0 +1,148 @@
+{
+  "baseline": {
+    "success": true,
+    "outcome_line": "VERIFIED: all tasks completed and gates passed",
+    "run_id": "edbd93e3974c",
+    "token_report": {
+      "budget_total": 2000000,
+      "correlation_id": "edbd93e3974c",
+      "governor_mode": "normal",
+      "per_agent_efficiency": {
+        "arch-1": 0.0,
+        "ver-1": 8.475
+      },
+      "per_agent_tokens": {
+        "arch-1": {
+          "completion_tokens": 124,
+          "prompt_tokens": 594,
+          "total_tokens": 718
+        },
+        "ver-1": {
+          "completion_tokens": 11,
+          "prompt_tokens": 107,
+          "total_tokens": 118
+        }
+      },
+      "results": [
+        {
+          "artifacts": [],
+          "error": null,
+          "success": true,
+          "summary": "TASK_COMPLETE: verified greet() returns hello",
+          "task_id": "st-1"
+        }
+      ],
+      "stage_durations": {
+        "architect": 0.003,
+        "specialists": 0.003,
+        "verification": 0.238
+      },
+      "tasks_completed": 1,
+      "tasks_failed": 0,
+      "tasks_per_1k_tokens": 1.196,
+      "tokens_total": 836
+    }
+  },
+  "candidate": {
+    "success": true,
+    "outcome_line": "VERIFIED: all tasks completed and gates passed",
+    "run_id": "2ed36dd65c70",
+    "token_report": {
+      "budget_total": 2000000,
+      "correlation_id": "2ed36dd65c70",
+      "governor_mode": "normal",
+      "per_agent_efficiency": {
+        "arch-1": 0.0,
+        "ver-1": 8.475
+      },
+      "per_agent_tokens": {
+        "arch-1": {
+          "completion_tokens": 124,
+          "prompt_tokens": 594,
+          "total_tokens": 718
+        },
+        "ver-1": {
+          "completion_tokens": 11,
+          "prompt_tokens": 107,
+          "total_tokens": 118
+        }
+      },
+      "results": [
+        {
+          "artifacts": [],
+          "error": null,
+          "success": true,
+          "summary": "TASK_COMPLETE: verified greet() returns hello",
+          "task_id": "st-1"
+        }
+      ],
+      "stage_durations": {
+        "architect": 0.003,
+        "specialists": 0.002,
+        "verification": 0.231
+      },
+      "tasks_completed": 1,
+      "tasks_failed": 0,
+      "tasks_per_1k_tokens": 1.196,
+      "tokens_total": 836
+    }
+  },
+  "delta": {
+    "per_agent": {
+      "arch-1": {
+        "prompt_tokens": {
+          "baseline": 594,
+          "candidate": 594,
+          "delta": 0,
+          "pct": 0.0
+        },
+        "completion_tokens": {
+          "baseline": 124,
+          "candidate": 124,
+          "delta": 0,
+          "pct": 0.0
+        },
+        "total_tokens": {
+          "baseline": 718,
+          "candidate": 718,
+          "delta": 0,
+          "pct": 0.0
+        }
+      },
+      "ver-1": {
+        "prompt_tokens": {
+          "baseline": 107,
+          "candidate": 107,
+          "delta": 0,
+          "pct": 0.0
+        },
+        "completion_tokens": {
+          "baseline": 11,
+          "candidate": 11,
+          "delta": 0,
+          "pct": 0.0
+        },
+        "total_tokens": {
+          "baseline": 118,
+          "candidate": 118,
+          "delta": 0,
+          "pct": 0.0
+        }
+      }
+    },
+    "totals": {
+      "tokens_total": {
+        "baseline": 836,
+        "candidate": 836,
+        "delta": 0,
+        "pct": 0.0
+      },
+      "tasks_completed": {
+        "baseline": 1,
+        "candidate": 1,
+        "delta": 0,
+        "pct": 0.0
+      }
+    }
+  }
+}

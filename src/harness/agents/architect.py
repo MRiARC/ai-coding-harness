@@ -19,6 +19,7 @@ from harness.engine.budget import BudgetGovernor
 from harness.infrastructure.context_store import ContextStore
 from harness.infrastructure.model_providers import ModelProvider
 from harness.tools.base import Tool
+from harness.tools.filesystem import compact_repo_summary
 
 PROFILE_SCHEMA = (
     '{"languages": [str], "frameworks": [str], "test_framework": str, '
@@ -111,7 +112,8 @@ class ArchitectAgent(LLMAgent):
         agent shares one understanding of the codebase.
         """
         prompt = (
-            f"Analyze this repository summary and reply with JSON only.\nSummary: {repo_summary}"
+            "Analyze this repository summary and reply with JSON only.\n"
+            f"Summary: {compact_repo_summary(repo_summary)}"
         )
         data = await self.structured_call(
             "Reply with JSON matching: " + PROFILE_SCHEMA, prompt, PROFILE_SCHEMA

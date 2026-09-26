@@ -28,6 +28,13 @@ from harness.infrastructure.model_providers import (
     ModelProvider,
     ModelResponse,
 )
+from harness.infrastructure.model_providers.capability import (
+    CapabilityCache,
+    ModelCapabilities,
+    parse_tool_call_blocks,
+    render_tool_manual,
+    strip_think_blocks,
+)
 from harness.orchestration.messages import AgentStatus, ErrorEscalation, Severity, StatusUpdate
 from harness.tools.base import AsyncExecutableTool, Tool, ToolResult, ToolTier
 
@@ -35,10 +42,28 @@ logger = get_logger(__name__)
 
 DEFAULT_KEEP_RECENT = 24
 DEFAULT_MAX_STEPS = 16
+DEFAULT_STALE_TOOL_RESULTS = 6
+"""Tool results outside the newest N keep full text; older ones are stubbed.
+
+Tool outputs dominate window bytes and replay verbatim on every step (M5
+issue #61). The store stays lossless; only message assembly degrades stale
+results to one-line stubs.
+"""
 MAX_UNMARKED_NUDGES = 2
+_CAPABILITY_CACHE = CapabilityCache()
+REPEAT_STRIKE_THRESHOLD = 2
+DEDUP_TOOLS = frozenset({"filesystem_read", "filesystem_list", "search_text"})
+"""Deterministic tools whose identical repeat calls return a cached result."""
+MUTATING_TOOLS = frozenset({"apply_edit", "code_execution"})
+"""Successful calls invalidate the dedup cache (files may have changed)."""
 _NUDGE = (
     "You are not finished: use the available tools to complete the task now. "
     f"Reply with '{FINAL_MARKER}: <summary>' ONLY when done."
+)
+_REPEAT_NUDGE = (
+    "Loop detected: you repeated identical tool call(s) and received cached "
+    "results. Change approach - read different files, apply an edit, or "
+    f"finish with {FINAL_MARKER}."
 )
 
 _STEP_LIMIT_ERROR = "step limit reached before the agent finished"
@@ -128,13 +153,32 @@ def _balanced_object(text: str, start: int) -> str:
     raise StructuredOutputError(msg)
 
 
+def _stale_tool_stub(turn: Any) -> str:
+    """One-line replacement for a tool result outside the newest N (issue #61)."""
+    first = next((ln.strip() for ln in turn.content.splitlines() if ln.strip()), "(empty)")
+    name = turn.tool_name or "tool"
+    return f"[elided stale {name} result ({len(turn.content)} chars): {first[:100]}]"
+
+
 class StoreWindow:
     """ContextWindow implementation backed by the context store."""
 
-    def __init__(self, store: ContextStore, agent_id: str, task_id: str) -> None:
+    def __init__(
+        self,
+        store: ContextStore,
+        agent_id: str,
+        task_id: str,
+        stale_tool_results: int = DEFAULT_STALE_TOOL_RESULTS,
+    ) -> None:
         self._store = store
         self._agent_id = agent_id
         self._task_id = task_id
+        self._stale_tool_results = stale_tool_results
+
+    @property
+    def task_id(self) -> str:
+        """The window's task namespace (structured calls compress against it)."""
+        return self._task_id
 
     def append(
         self,
@@ -162,10 +206,18 @@ class StoreWindow:
         (`{id, name, arguments}`); tool turns emit their `tool_call_id` and
         `tool_name`. Each provider projects this onto its own wire format in
         its `_payload`, so the native tool-calling protocol round-trips.
+
+        Tool results outside the newest `stale_tool_results` are assembled as
+        one-line stubs (#61): the store keeps them losslessly, but replaying
+        every old output at full size on every step is the largest single
+        prompt-token cost in multi-round tasks.
         """
         context = self._store.load_agent_context(self._agent_id, self._task_id)
+        tool_positions = [i for i, turn in enumerate(context.recent) if turn.role == "tool"]
+        cutoff = len(tool_positions) - self._stale_tool_results
+        stale_positions = set(tool_positions[: max(0, cutoff)])
         messages: list[dict[str, Any]] = []
-        for turn in context.recent:
+        for position, turn in enumerate(context.recent):
             message: dict[str, Any] = {"role": turn.role, "content": turn.content}
             if turn.tool_calls:
                 message["tool_calls"] = [
@@ -179,6 +231,8 @@ class StoreWindow:
             if turn.tool_call_id:
                 message["tool_call_id"] = turn.tool_call_id
                 message["tool_name"] = turn.tool_name
+                if position in stale_positions:
+                    message["content"] = _stale_tool_stub(turn)
             messages.append(message)
         return messages
 
@@ -199,6 +253,7 @@ class LLMAgent(BaseAgent):
         model_tier: int = 3,
         max_steps: int = DEFAULT_MAX_STEPS,
         keep_recent: int = DEFAULT_KEEP_RECENT,
+        stale_tool_results: int = DEFAULT_STALE_TOOL_RESULTS,
     ) -> None:
         super().__init__(agent_id, model_config, tools, context_window)
         self.provider = provider
@@ -210,13 +265,45 @@ class LLMAgent(BaseAgent):
         self.model_tier = model_tier
         self.max_steps = max_steps
         self.keep_recent = keep_recent
+        self.stale_tool_results = stale_tool_results
         self._active_task: str | None = None
         self._attempts: dict[str, int] = {}
+        self._capabilities: ModelCapabilities | None = None
+        self.capability_cache: CapabilityCache = _CAPABILITY_CACHE
+        self._reset_dedup_state()
+
+    def _reset_dedup_state(self) -> None:
+        """Fresh per-task dedup cache (#62): files may change between tasks."""
+        self._dedup_cache: dict[tuple[str, str], str] = {}
+        self._dedup_strikes: dict[tuple[str, str], int] = {}
+        self._round_dedup_strikes: list[int] = []
+        self._repeat_nudges = 0
 
     # -- BaseAgent contract ---------------------------------------------------
     @property
     def preset(self) -> RolePreset | None:
         return ROLE_PRESETS.get(self.role)
+
+    async def native_tool_calls(self) -> bool:
+        """Whether this agent's model takes native tool calls (§3.1).
+
+        `auto` probes once per model and caches; explicit config wins.
+        Probe failure is optimistic (native), matching pre-probe behavior.
+        """
+        mode = self.provider._config.tool_call_mode  # same package boundary
+        if mode == "native":
+            return True
+        if mode == "text":
+            return False
+        if self._capabilities is None:
+            self._capabilities = await self.capability_cache.get_or_probe(self.provider)
+            logger.info(
+                "model capabilities probed",
+                model=self.provider.model,
+                native_tool_calls=self._capabilities.native_tool_calls,
+                detail=self._capabilities.detail,
+            )
+        return self._capabilities.native_tool_calls
 
     async def execute_task(self, task: Task) -> TaskResult:
         """Run the tool loop until the model stops calling tools or limits hit."""
@@ -224,7 +311,10 @@ class LLMAgent(BaseAgent):
         # Rebind the window to *this* task: agents are reusable, and a stale
         # window would split the conversation across task ids or hide the
         # task text from the first model call (audit §10).
-        self.context_window = StoreWindow(self.store, self.agent_id, task.id)
+        self._reset_dedup_state()
+        self.context_window = StoreWindow(
+            self.store, self.agent_id, task.id, stale_tool_results=self.stale_tool_results
+        )
         self.context_window.append("user", compose_task_prompt(task))
         try:
             summary, success, error = await self._loop(task)
@@ -252,7 +342,7 @@ class LLMAgent(BaseAgent):
         self.context_window.append("user", user_prompt)
         reply = await self._generate(instruction, use_tools=False)
         try:
-            return extract_json(reply.content)
+            parsed = extract_json(reply.content)
         except StructuredOutputError:
             repair = (
                 f"Your last reply was not valid JSON for the required schema.\n"
@@ -262,7 +352,20 @@ class LLMAgent(BaseAgent):
             reply = await self._generate(instruction, use_tools=False)
             parsed = extract_json(reply.content)
             self.context_window.append("assistant", "recovered with valid JSON")
-            return parsed
+        self._compress_window_after_structured()
+        return parsed
+
+    def _compress_window_after_structured(self) -> None:
+        """Bound a structured-call window's growth across recovery rounds (#63).
+
+        The Architect's planning window survives across recovery rounds (the
+        task id is fixed), so without folding, every re-analysis re-sends the
+        whole accumulated history. Windows without a task namespace (test
+        fakes) are skipped.
+        """
+        window_task = getattr(self.context_window, "task_id", None)
+        if window_task is not None:
+            self._maybe_compress(window_task)
 
     async def _generate(self, instruction: str, use_tools: bool = True) -> ModelResponse:
         self.governor.check()
@@ -302,11 +405,13 @@ class LLMAgent(BaseAgent):
         context = self.store.load_agent_context(self.agent_id, task.id)
         ledger = context.summary if context.summary else ""
         unmarked_finishes = 0
+        use_native = await self.native_tool_calls()
         for _step in range(self.max_steps):
             self.governor.check()
-            self.governor.reserve(_estimate_tokens(self._messages(task, ledger)))
+            self.governor.reserve(_estimate_tokens(self._messages(task, ledger, use_native)))
             response = await self.provider.generate(
-                self._messages(task, ledger), self._tool_schemas()
+                self._messages(task, ledger, use_native),
+                self._tool_schemas() if use_native else None,
             )
             self.governor.record(
                 self.agent_id,
@@ -314,6 +419,7 @@ class LLMAgent(BaseAgent):
                 response.prompt_tokens,
                 response.completion_tokens,
             )
+            content = strip_think_blocks(response.content or "")
             if response.tool_calls:
                 calls: list[dict[str, Any]] = [
                     {
@@ -323,7 +429,7 @@ class LLMAgent(BaseAgent):
                     }
                     for index, call in enumerate(response.tool_calls)
                 ]
-                self.context_window.append("assistant", response.content or "", tool_calls=calls)
+                self.context_window.append("assistant", content, tool_calls=calls)
                 for call in calls:
                     result = await self._invoke_tool(call["name"], call["arguments"])
                     self.context_window.append(
@@ -332,8 +438,29 @@ class LLMAgent(BaseAgent):
                         tool_call_id=call["id"],
                         tool_name=call["name"],
                     )
+                round_strikes = self._round_dedup_strikes
+                self._round_dedup_strikes = []
+                if (
+                    round_strikes
+                    and max(round_strikes) >= REPEAT_STRIKE_THRESHOLD
+                    and self._repeat_nudges < MAX_UNMARKED_NUDGES
+                ):
+                    self._repeat_nudges += 1
+                    self.context_window.append("user", _REPEAT_NUDGE)
                 continue
-            content = response.content or ""
+            if not use_native and (calls := parse_tool_call_blocks(content)):
+                # Text protocol: results go back as user turns so the wire
+                # stays valid for models without native tool-role semantics.
+                self.context_window.append("assistant", content, tool_calls=calls)
+                for call in calls:
+                    result = await self._invoke_tool(call["name"], call["arguments"])
+                    self.context_window.append(
+                        "user",
+                        f"TOOL_RESULT ({call['name']}): {result.output or result.error}",
+                        tool_call_id=call["id"],
+                        tool_name=call["name"],
+                    )
+                continue
             if FINAL_MARKER in content:
                 self._maybe_compress(task.id)
                 return content, True, None
@@ -350,8 +477,9 @@ class LLMAgent(BaseAgent):
         self._maybe_compress(task.id)
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
-    def _messages(self, task: Task, ledger: str) -> list[dict[str, Any]]:
+    def _messages(self, task: Task, ledger: str, use_native: bool = True) -> list[dict[str, Any]]:
         mode_directive = _MODE_DIRECTIVES.get(self.governor.mode(), "")
+        tool_manual = "" if use_native else render_tool_manual(self._tool_schemas())
         return [
             {
                 "role": "system",
@@ -361,6 +489,7 @@ class LLMAgent(BaseAgent):
                     extra=(
                         f"Working repo task id: {task.id}. "
                         f"End with {FINAL_MARKER} when done.{mode_directive}"
+                        + (f"\n\n{tool_manual}" if tool_manual else "")
                     ),
                 ),
             },
@@ -396,8 +525,40 @@ class LLMAgent(BaseAgent):
                 success=False,
                 error=f"permission denied for tool '{name}' at tier {self.model_tier}",
             )
-        result = await _call_tool(tool, arguments)
+        result = await self._dedup_or_execute(tool, arguments)
         self.governor.record(self.agent_id, f"tool:{name}", 0, 0)
+        return result
+
+    async def _dedup_or_execute(self, tool: Tool, arguments: dict[str, Any]) -> ToolResult:
+        """Cache deterministic tools' identical repeat calls (#62).
+
+        A cache hit returns the stored output with a marker instead of
+        re-executing; strikes per key drive the loop nudge in `_loop`. Any
+        successful mutating tool invalidates the whole cache - finer-grained
+        path tracking is not worth the correctness risk.
+        """
+        key = (tool.name, json.dumps(arguments, sort_keys=True, default=str))
+        if tool.name in DEDUP_TOOLS and key in self._dedup_cache:
+            strike = self._dedup_strikes.get(key, 0) + 1
+            self._dedup_strikes[key] = strike
+            self._round_dedup_strikes.append(strike)
+            return ToolResult(
+                success=True,
+                data={"dedup_hit": True},
+                output=(
+                    f"{self._dedup_cache[key]}\n"
+                    "[dedup: identical call already executed; cached result above - "
+                    "change arguments or move on]"
+                ),
+            )
+        result = await _call_tool(tool, arguments)
+        if result.success:
+            if tool.name in DEDUP_TOOLS:
+                self._dedup_cache[key] = result.output
+                self._dedup_strikes.pop(key, None)
+            elif tool.name in MUTATING_TOOLS:
+                self._dedup_cache.clear()
+                self._dedup_strikes.clear()
         return result
 
     def _maybe_compress(self, task_id: str) -> None:
