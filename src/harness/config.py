@@ -70,6 +70,13 @@ class ModelConfig(BaseModel):
     max_tokens: int = Field(default=4096, ge=1)
     request_timeout_seconds: float = Field(default=120.0, gt=0)
     max_retries: int = Field(default=3, ge=0)
+    tool_call_mode: Literal["auto", "native", "text"] = Field(
+        default="auto",
+        description=(
+            "auto: probe the model once (native tool calls vs text protocol); "
+            "native/text force the convention (improvements §3.1)."
+        ),
+    )
     extra: dict[str, Any] = Field(
         default_factory=dict,
         description="Provider-specific kwargs passed through to the API client.",

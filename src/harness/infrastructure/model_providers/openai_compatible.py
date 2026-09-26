@@ -109,7 +109,11 @@ class OpenAICompatibleProvider(ModelProvider):
             for call in message.get("tool_calls") or []
         ]
         usage = data.get("usage") or {}
-        content = message.get("content") or ""
+        # Reasoning models: content may be None with a separate reasoning
+        # field, or may carry <think> blocks (Qwen-style) - strip both.
+        from harness.infrastructure.model_providers.capability import strip_think_blocks
+
+        content = strip_think_blocks(message.get("content") or "")
         prompt_estimate = sum(_approx_tokens(str(m.get("content") or "")) for m in messages)
         return ModelResponse(
             content=content,
