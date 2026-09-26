@@ -351,3 +351,21 @@ def test_parse_envelope_invalid_json_falls_back_to_plain(store) -> None:
     assert messages == [
         {"role": "assistant", "content": "{not valid json but it is the model's words"}
     ]
+
+
+async def test_guidance_from_metadata_reaches_the_model(store, fake_model_config) -> None:
+    """Audit §8: L2 re-route guidance must actually reach the specialist."""
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _text("TASK_COMPLETE: followed the guidance"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool()])
+    task = Task(
+        id="t-g", title="t", description="d", metadata={"guidance": "try narrower scope first"}
+    )
+    await agent.execute_task(task)
+    sent = provider.calls[0]["messages"]
+    system_text = sent[0]["content"]
+    assert "Manager guidance for this attempt: try narrower scope first" in system_text

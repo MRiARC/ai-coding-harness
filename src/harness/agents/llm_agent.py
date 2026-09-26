@@ -325,15 +325,17 @@ class LLMAgent(BaseAgent):
         self._maybe_compress(task.id)
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
-    def _messages(self, task: Task, ledger: str) -> list[dict[str, str]]:
+    def _messages(self, task: Task, ledger: str) -> list[dict[str, Any]]:
+        # Re-route guidance (recovery L2) travels in task.metadata — it MUST
+        # reach the model, or the Manager's intervention is theater.
+        guidance = task.metadata.get("guidance")
+        extra = f"Working repo task id: {task.id}. End with {FINAL_MARKER} when done."
+        if guidance:
+            extra += f"\nManager guidance for this attempt: {guidance}"
         return [
             {
                 "role": "system",
-                "content": system_prompt(
-                    self.role,
-                    fact_ledger=ledger,
-                    extra=f"Working repo task id: {task.id}. End with {FINAL_MARKER} when done.",
-                ),
+                "content": system_prompt(self.role, fact_ledger=ledger, extra=extra),
             },
             *self.context_window.as_messages(),
         ]

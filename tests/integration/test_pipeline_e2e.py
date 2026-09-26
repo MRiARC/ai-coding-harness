@@ -192,3 +192,39 @@ async def test_pipeline_reports_phase_durations(
     assert "specialists" in token_report["stage_durations"]
     assert "verification" in token_report["stage_durations"]
     store.close()
+
+
+async def test_batches_execute_sequentially(
+    demo_repo: Path, config: HarnessConfig, fake_model_config
+) -> None:
+    """Audit §11: same-tree 'parallel' specialists race; batch runs serialized."""
+    two_subtask_plan = (
+        '{"issue_summary": "two steps", "complexity": 3, "subtasks": ['
+        '{"id": "st-1", "title": "one", "description": "first", '
+        '"specialty": "verification", "complexity": 1, "files": ["app.py"], '
+        '"acceptance_criteria": ["one done"], "depends_on": []}, '
+        '{"id": "st-2", "title": "two", "description": "second", '
+        '"specialty": "verification", "complexity": 1, "files": ["test_greet.py"], '
+        '"acceptance_criteria": ["two done"], "depends_on": []}], '
+        '"risks": [], "needs_collaboration": false}'
+    )
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            ModelResponse(content=PROFILE_JSON),
+            ModelResponse(content=two_subtask_plan),
+            ModelResponse(content="TASK_COMPLETE: one"),
+            ModelResponse(content="TASK_COMPLETE: two"),
+            ModelResponse(content=VERDICT_JSON),
+        ],
+    )
+    store = SQLiteContextStore(demo_repo / ".harness" / "pipeline.db")
+    from harness.security.audit import AuditLog
+
+    pipeline = HarnessPipeline(
+        demo_repo, config, provider, store, audit=AuditLog(demo_repo / ".harness" / "audit.jsonl")
+    )
+    outcome = await pipeline.run("two-step issue")
+    assert outcome.task_results[0].summary == "TASK_COMPLETE: one"
+    assert outcome.task_results[1].summary == "TASK_COMPLETE: two"
+    store.close()
