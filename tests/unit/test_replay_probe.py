@@ -44,6 +44,9 @@ def test_replay_headless(monkeypatch, tmp_path: Path, packed: EvidencePack, caps
         def isatty(self) -> bool:
             return False
 
+        def read(self) -> str:
+            return ""
+
     monkeypatch.setattr("sys.stdin", FakeStdin())
     from harness.cli import replay_command
 
@@ -60,6 +63,9 @@ def test_replay_explicit_run_id(monkeypatch, tmp_path: Path, packed: EvidencePac
     class FakeStdin:
         def isatty(self) -> bool:
             return False
+
+        def read(self) -> str:
+            return ""
 
     monkeypatch.setattr("sys.stdin", FakeStdin())
     from harness.cli import replay_command
@@ -99,6 +105,9 @@ def test_replay_without_any_pack(monkeypatch, tmp_path: Path, capsys) -> None:
     class FakeStdin:
         def isatty(self) -> bool:
             return False
+
+        def read(self) -> str:
+            return ""
 
     monkeypatch.setattr("sys.stdin", FakeStdin())
     from harness.cli import replay_command
@@ -159,6 +168,9 @@ def test_main_replay_dispatch(monkeypatch, tmp_path: Path, packed: EvidencePack,
         def isatty(self) -> bool:
             return False
 
+        def read(self) -> str:
+            return ""
+
     monkeypatch.setattr("sys.stdin", FakeStdin())
     from harness.cli import main
 
@@ -173,6 +185,9 @@ def test_main_replay_missing_pack(monkeypatch, tmp_path: Path, capsys) -> None:
         def isatty(self) -> bool:
             return False
 
+        def read(self) -> str:
+            return ""
+
     monkeypatch.setattr("sys.stdin", FakeStdin())
     from harness.cli import main
 
@@ -186,6 +201,9 @@ def test_main_run_dispatch_headless(monkeypatch, tmp_path: Path, capsys) -> None
     class FakeStdin:
         def isatty(self) -> bool:
             return False
+
+        def read(self) -> str:
+            return ""
 
     monkeypatch.setattr("sys.stdin", FakeStdin())
     from harness.cli import main

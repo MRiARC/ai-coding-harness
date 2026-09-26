@@ -39,6 +39,9 @@ def test_run_command_headless(monkeypatch, tmp_path, capsys) -> None:
         def isatty(self) -> bool:
             return False
 
+        def read(self) -> str:
+            return ""
+
     monkeypatch.setattr(sys, "stdin", FakeStdin())
     from harness.cli import run_command
 

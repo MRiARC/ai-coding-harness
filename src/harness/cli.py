@@ -36,8 +36,10 @@ def doctor(probe_model: bool = False) -> int:
                 "the harness will run in offline/test mode only"
             )
         else:
-            print(f"[ok] environment variable {API_KEY_ENV} is set; "
-                  "copy config.example.yaml to harness.yaml to use it")
+            print(
+                f"[ok] environment variable {API_KEY_ENV} is set; "
+                "copy config.example.yaml to harness.yaml to use it"
+            )
         print("[ok] environment ready")
         return 0
 
