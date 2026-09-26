@@ -230,7 +230,18 @@ def test_cli_bench_command(
 
     monkeypatch.setattr("harness.bench.tokens.main", fake_main)
     code = cli.main(
-        ["bench", "--ref", "HEAD", "--save-baseline", "--json-out", "d.json", "--issue", "i"]
+        [
+            "bench",
+            "--ref",
+            "HEAD",
+            "--save-baseline",
+            "--json-out",
+            "d.json",
+            "--issue",
+            "i",
+            "--baseline-path",
+            "b.json",
+        ]
     )
     assert code == 0
     assert seen["argv"] == [
@@ -239,6 +250,8 @@ def test_cli_bench_command(
         "--ref",
         "HEAD",
         "--save-baseline",
+        "--baseline-path",
+        "b.json",
         "--json-out",
         "d.json",
     ]
