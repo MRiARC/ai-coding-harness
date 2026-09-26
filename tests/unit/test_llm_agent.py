@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
@@ -120,7 +121,9 @@ def _json_block() -> str:
 
 
 async def test_unknown_tool_becomes_tool_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("nope"), _text("TASK_COMPLETE: done")])
+    provider = FakeProvider(
+        fake_model_config, responses=[_call("nope"), _text("TASK_COMPLETE: done")]
+    )
     result = await _agent(store, provider).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -128,7 +131,9 @@ async def test_unknown_tool_becomes_tool_result(store, fake_model_config) -> Non
 
 
 async def test_invalid_arguments_become_tool_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("echo_tool"), _text("TASK_COMPLETE: done")])
+    provider = FakeProvider(
+        fake_model_config, responses=[_call("echo_tool"), _text("TASK_COMPLETE: done")]
+    )
     result = await _agent(store, provider).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -137,7 +142,8 @@ async def test_invalid_arguments_become_tool_result(store, fake_model_config) ->
 
 async def test_permission_denial_at_low_tier(store, fake_model_config) -> None:
     provider = FakeProvider(
-        fake_model_config, responses=[_call("writer_tool", content="x"), _text("TASK_COMPLETE: done")]
+        fake_model_config,
+        responses=[_call("writer_tool", content="x"), _text("TASK_COMPLETE: done")],
     )
     agent = _agent(store, provider, model_tier=1)
     await agent.execute_task(TASK)
@@ -154,7 +160,9 @@ async def test_preset_tier_limits_schemas(store, fake_model_config) -> None:
 
 
 async def test_crashing_tool_returns_error_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("crash_tool"), _text("TASK_COMPLETE: done")])
+    provider = FakeProvider(
+        fake_model_config, responses=[_call("crash_tool"), _text("TASK_COMPLETE: done")]
+    )
     result = await _agent(store, provider, tools=[CrashTool()]).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -299,3 +307,36 @@ async def test_unmarked_finishes_exhaust_then_best_effort(store, fake_model_conf
     result = await agent.execute_task(TASK)
     assert result.success  # gates, not the agent's claim, decide the truth
     assert "thinking" in result.summary
+
+
+async def test_tool_alias_resolution(store, fake_model_config) -> None:
+    """Models use natural names (read_file); aliases resolve and execute."""
+    from harness.tools.registry import build_default_tools
+
+    registry_tools = [t for t in build_default_tools(Path(".")) if t.name == "filesystem_read"]
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("read_file", path="pyproject.toml"),
+            _text("TASK_COMPLETE: read it"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool(), *registry_tools])
+    result = await agent.execute_task(TASK)
+    assert result.success
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("[read_file]" in t.content for t in window.recent)
+
+
+async def test_unknown_tool_error_lists_available(store, fake_model_config) -> None:
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("quantum_flip"),
+            _text("TASK_COMPLETE: gave up on the mystery tool"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool()])
+    await agent.execute_task(TASK)
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("available: echo_tool" in t.content for t in window.recent)

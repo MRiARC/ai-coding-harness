@@ -160,6 +160,10 @@ class LLMAgent(BaseAgent):
     async def execute_task(self, task: Task) -> TaskResult:
         """Run the tool loop until the model stops calling tools or limits hit."""
         self._active_task = task.id
+        # Rebind the window to THIS task: a specialist runs many tasks over
+        # its lifetime, and every turn (task text, tool results, summaries)
+        # must live in the same namespace the model reads from.
+        self.context_window = StoreWindow(self.store, self.agent_id, task.id)
         self.store.append_turn(
             self.agent_id, task.id, "user", f"TASK: {task.title}\n{task.description}"
         )
@@ -297,9 +301,17 @@ class LLMAgent(BaseAgent):
         ]
 
     async def _invoke_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+        from harness.tools.registry import TOOL_ALIASES
+
         tool = next((t for t in self.tools if t.name == name), None)
+        if tool is None and name in TOOL_ALIASES:
+            # Models call tools by their natural names (read_file, grep, ...);
+            # resolve the registry's canonical instance.
+            canonical = TOOL_ALIASES[name]
+            tool = next((t for t in self.tools if t.name == canonical), None)
         if tool is None:
-            return ToolResult(success=False, error=f"unknown tool '{name}'")
+            available = ", ".join(t.name for t in self.tools)
+            return ToolResult(success=False, error=f"unknown tool '{name}'; available: {available}")
         if errors := tool.validate_input(arguments):
             return ToolResult(success=False, error=f"invalid arguments: {'; '.join(errors)}")
         context = {"agent_id": self.agent_id, "model_tier": self.model_tier}
