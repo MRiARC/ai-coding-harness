@@ -89,8 +89,7 @@ def search_knowledge(
     if not terms:
         return []
     books: list[tuple[str, str]] = (
-        [(role, load_playbook(role))] if role and load_playbook(role)
-        else sorted(PLAYBOOKS.items())
+        [(role, load_playbook(role))] if role and load_playbook(role) else sorted(PLAYBOOKS.items())
     )
     scored: list[tuple[int, str, str, str]] = []
     for book_role, playbook in books:
@@ -104,7 +103,9 @@ def search_knowledge(
             lowered = stripped.lower()
             score = sum(1 for term in terms if term in lowered)
             if score:
-                display = stripped if len(stripped) <= _MAX_LINE_LEN else stripped[:_MAX_LINE_LEN] + "…"
+                display = (
+                    stripped if len(stripped) <= _MAX_LINE_LEN else stripped[:_MAX_LINE_LEN] + "…"
+                )
                 scored.append((score, book_role, current_section, display))
     scored.sort(key=lambda item: (-item[0], item[1], item[3]))
     return [
@@ -115,10 +116,7 @@ def search_knowledge(
 
 def knowledge_summary() -> dict[str, Any]:
     """Registry introspection: roles covered and playbook sizes (bytes)."""
-    return {
-        role: len(playbook)
-        for role, playbook in sorted(PLAYBOOKS.items())
-    }
+    return {role: len(playbook) for role, playbook in sorted(PLAYBOOKS.items())}
 
 
 def export_cards(path: Path, max_chars: int = DEFAULT_SKILL_CARD_CHARS) -> Path:

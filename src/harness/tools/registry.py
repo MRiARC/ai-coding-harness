@@ -40,7 +40,8 @@ def build_default_tools(repo_root: Path) -> list[Tool]:
 
 
 TOOL_NAMES: dict[str, int] = {
-    "filesystem_read": 1, "search_knowledge": 1,
+    "filesystem_read": 1,
+    "search_knowledge": 1,
     "filesystem_list": 1,
     "search_text": 1,
     "git_status": 1,

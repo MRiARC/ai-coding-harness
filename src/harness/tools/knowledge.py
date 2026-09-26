@@ -40,8 +40,9 @@ class KnowledgeSearchTool(Tool):
     def check_permissions(self, context: dict[str, Any]) -> bool:
         return True
 
-    def execute(self, query: str, role: str | None = None,
-                limit: int = DEFAULT_SEARCH_LIMIT, **_: Any) -> ToolResult:
+    def execute(
+        self, query: str, role: str | None = None, limit: int = DEFAULT_SEARCH_LIMIT, **_: Any
+    ) -> ToolResult:
         findings = search_knowledge(query, role=role, limit=limit)
         if not findings:
             return ToolResult(
@@ -50,8 +51,7 @@ class KnowledgeSearchTool(Tool):
                 data={"matches": 0},
             )
         lines = [
-            f"[{finding['role']} / {finding['section']}] {finding['line']}"
-            for finding in findings
+            f"[{finding['role']} / {finding['section']}] {finding['line']}" for finding in findings
         ]
         return ToolResult(
             success=True,

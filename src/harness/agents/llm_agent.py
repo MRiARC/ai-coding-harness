@@ -24,7 +24,6 @@ from harness.agents.task import Task, TaskResult
 from harness.engine.budget import BudgetExhausted, BudgetGovernor, GovernorMode
 from harness.infrastructure.context_store import ContextStore
 from harness.infrastructure.logging import get_logger
-from harness.knowledge.registry import knowledge_section
 from harness.infrastructure.model_providers import (
     ModelProvider,
     ModelResponse,
@@ -36,6 +35,7 @@ from harness.infrastructure.model_providers.capability import (
     render_tool_manual,
     strip_think_blocks,
 )
+from harness.knowledge.registry import knowledge_section
 from harness.orchestration.messages import AgentStatus, ErrorEscalation, Severity, StatusUpdate
 from harness.tools.base import AsyncExecutableTool, Tool, ToolResult, ToolTier
 

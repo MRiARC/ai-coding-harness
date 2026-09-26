@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from harness.agents.prompts import ROLE_PRESETS, system_prompt
 from harness.knowledge.registry import (
     DEFAULT_SKILL_CARD_CHARS,
@@ -139,7 +137,9 @@ def test_skill_card_defaults_match_constant() -> None:
 
 def test_skill_card_fallback_without_canonical_sections(monkeypatch) -> None:
     """A playbook lacking CORE/PATTERNS still yields a capped card."""
-    monkeypatch.setitem(PLAYBOOKS, "synthetic-role", "# Synthetic\nBody line one.\nBody line two.\n")
+    monkeypatch.setitem(
+        PLAYBOOKS, "synthetic-role", "# Synthetic\nBody line one.\nBody line two.\n"
+    )
     card = skill_card("synthetic-role")
     assert card.startswith("Body line one.")
     assert "CORE PRINCIPLES" not in card
@@ -157,13 +157,25 @@ def test_persona_knowledge_disabled_returns_empty(tmp_path: Path) -> None:
 
     config = _service_config() if "_service_config" in globals() else None
     store = MemoryContextStore()
-    governor = BudgetGovernor(store, __import__("harness.config", fromlist=["BudgetConfig"]).BudgetConfig(total_tokens=10_000), "corr-k")
+    governor = BudgetGovernor(
+        store,
+        __import__("harness.config", fromlist=["BudgetConfig"]).BudgetConfig(total_tokens=10_000),
+        "corr-k",
+    )
     agent = LLMAgent(
-        agent_id="k-1", model_config={"provider": "fake"},
+        agent_id="k-1",
+        model_config={"provider": "fake"},
         tools=list(build_default_tools(_Path("."))),
         context_window=StoreWindow(store, "k-1", "t-1"),
-        provider=FakeProvider(__import__("harness.config", fromlist=["ModelConfig"]).ModelConfig(provider="fake", name="f"), []),
-        store=store, governor=governor, role="security",
+        provider=FakeProvider(
+            __import__("harness.config", fromlist=["ModelConfig"]).ModelConfig(
+                provider="fake", name="f"
+            ),
+            [],
+        ),
+        store=store,
+        governor=governor,
+        role="security",
         knowledge_enabled=False,
     )
     assert agent._persona_knowledge() == ""
