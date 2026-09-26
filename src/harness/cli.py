@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,15 +34,23 @@ def doctor(probe_model: bool = False) -> int:
             f"[warn] environment variable {API_KEY_ENV} is not set; "
             "the harness will run in offline/test mode only"
         )
+        print("[ok] environment ready")
         return 0
 
     try:
-        loader.load()
+        config = loader.load()
     except ConfigError as exc:
         print(f"[error] configuration invalid:\n{exc}")
         return 1
 
     print(f"[ok] configuration valid: {path}")
+    default_model = config.models.get("default")
+    key_env = default_model.api_key_env if default_model else API_KEY_ENV
+    if not os.environ.get(key_env):
+        print(
+            f"[warn] environment variable {key_env} is not set; "
+            "the harness will run in offline/test mode only"
+        )
     report = run_health_checks(Path.cwd(), config_path=path, model_probe=probe_model)
     for check in report.checks:
         if check["name"] == "model-api":
