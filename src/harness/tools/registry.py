@@ -51,3 +51,11 @@ TOOL_NAMES: dict[str, int] = {
     "code_execution": 3,
     "security_scan": 3,
 }
+
+
+TOOL_ALIASES: dict[str, str] = {
+    # Models reach for natural names; resolve them to registry instances.
+    "read_file": "filesystem_read",
+    "list_dir": "filesystem_list",
+    "grep": "search_text",
+}
