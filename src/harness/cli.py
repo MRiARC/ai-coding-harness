@@ -22,13 +22,11 @@ def doctor() -> int:
     print(f"harness {__version__}")
     problems: list[str] = []
 
-    if sys.version_info < (3, 11):
-        found = ".".join(map(str, sys.version_info[:3]))
-        problems.append(f"Python >= 3.11 required, found {found}")
-
     if not os.environ.get(API_KEY_ENV):
-        print(f"[warn] environment variable {API_KEY_ENV} is not set; "
-              "the harness will run in offline/test mode only")
+        print(
+            f"[warn] environment variable {API_KEY_ENV} is not set; "
+            "the harness will run in offline/test mode only"
+        )
 
     if os.path.exists("harness.yaml"):
         print("[ok] found harness.yaml")
@@ -51,7 +49,9 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("doctor", help="validate the runtime environment")
     args = parser.parse_args(argv)
-    return doctor()
+
+    commands = {"doctor": doctor}
+    return commands[args.command]()
 
 
 if __name__ == "__main__":
