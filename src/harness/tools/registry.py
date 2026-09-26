@@ -17,6 +17,7 @@ from harness.tools.filesystem import (
     ReadFileTool,
     WriteFileTool,
 )
+from harness.tools.graph import RepoGraphTool
 from harness.tools.vcs import GitAddTool, GitBranchTool, GitDiffTool, GitLogTool, GitStatusTool
 
 
@@ -31,6 +32,7 @@ def build_default_tools(repo_root: Path) -> list[Tool]:
         GitStatusTool(root),
         GitLogTool(root),
         GlobTool(root),
+        RepoGraphTool(root),
         # Tier 2 - development operations (issue 3.2)
         ApplyEditTool(root),
         WriteFileTool(root),
@@ -50,6 +52,7 @@ TOOL_NAMES: dict[str, int] = {
     "filesystem_list": 1,
     "search_text": 1,
     "glob_files": 1,
+    "repo_graph": 1,
     "git_status": 1,
     "git_log": 1,
     "filesystem_write": 2,
@@ -70,4 +73,5 @@ TOOL_ALIASES: dict[str, str] = {
     "list_dir": "filesystem_list",
     "grep": "search_text",
     "write_file": "filesystem_write",
+    "symbols": "repo_graph",
 }
