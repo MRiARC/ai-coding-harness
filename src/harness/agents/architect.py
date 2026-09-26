@@ -124,8 +124,10 @@ class ArchitectAgent(LLMAgent):
         """Decompose one issue into subtasks with acceptance criteria."""
         profile_section = f"Repository profile: {profile.model_dump()}\n" if profile else ""
         prompt = (
-            f"{profile_section}Decompose this issue into atomic subtasks. "
-            f"Each subtask lists the files it will touch.\nISSUE:\n{issue_text}"
+            f"{profile_section}Decompose this issue into ATOMIC subtasks. Rules: "
+            "every subtask MUST list the concrete files it will touch (from the "
+            "repository summary); keep the number of subtasks minimal; each "
+            f"acceptance criterion must be machine-checkable.\nISSUE:\n{issue_text}"
         )
         data = await self.structured_call(
             "Reply with JSON matching: " + PLAN_SCHEMA, prompt, PLAN_SCHEMA

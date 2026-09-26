@@ -39,7 +39,7 @@ def test_mode_thresholds_map_to_directives(memory_store) -> None:
 
 async def test_surgical_mode_reaches_system_prompt(memory_store) -> None:
     config = ModelConfig(provider="fake", name="fake-model", api_key_env="AI_API_KEY")
-    provider = FakeProvider(config, responses=[ModelResponse(content="done")])
+    provider = FakeProvider(config, responses=[ModelResponse(content="TASK_COMPLETE: done")])
     governor = _governor(memory_store, used=150_000)
     agent = LLMAgent(
         agent_id="impl-1",
@@ -57,7 +57,7 @@ async def test_surgical_mode_reaches_system_prompt(memory_store) -> None:
 
 async def test_finalize_mode_reaches_system_prompt(memory_store) -> None:
     config = ModelConfig(provider="fake", name="fake-model", api_key_env="AI_API_KEY")
-    provider = FakeProvider(config, responses=[ModelResponse(content="done")])
+    provider = FakeProvider(config, responses=[ModelResponse(content="TASK_COMPLETE: done")])
     governor = _governor(memory_store, used=190_000)
     agent = LLMAgent(
         agent_id="impl-1",
@@ -73,7 +73,9 @@ async def test_finalize_mode_reaches_system_prompt(memory_store) -> None:
     assert "BUDGET MODE finalize-only" in system
     # NORMAL emits no directive at all
     config_normal = ModelConfig(provider="fake", name="fake-model", api_key_env="AI_API_KEY")
-    provider_normal = FakeProvider(config_normal, responses=[ModelResponse(content="ok")])
+    provider_normal = FakeProvider(
+        config_normal, responses=[ModelResponse(content="TASK_COMPLETE: ok")]
+    )
     agent.governor = _governor(MemoryContextStore(), used=0)
     agent.provider = provider_normal
     await agent.execute_task(Task(id="task-2", title="T", description="D"))
@@ -104,7 +106,9 @@ def test_reserve_allows_headroom(memory_store) -> None:
 async def test_agent_stops_before_overshooting_call(memory_store) -> None:
     """With the cap nearly spent, the agent refuses the dispatch honestly."""
     config = ModelConfig(provider="fake", name="fake-model", api_key_env="AI_API_KEY")
-    provider = FakeProvider(config, responses=[ModelResponse(content="never reached")])
+    provider = FakeProvider(
+        config, responses=[ModelResponse(content="TASK_COMPLETE: never reached")]
+    )
     governor = _governor(memory_store, used=199_990, total=200_000)
     agent = LLMAgent(
         agent_id="impl-1",

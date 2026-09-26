@@ -262,8 +262,14 @@ class HarnessPipeline:
         run_id: str,
         architect: ArchitectAgent,
     ) -> list[TaskResult]:
-        """Execute one disjoint batch; specialists within it run concurrently."""
-        import asyncio
+        """Execute one file-disjoint batch, strictly sequentially.
+
+        The batch structure exists so a future worktree fan-out can run its
+        members in parallel; until worktrees land, concurrent specialists
+        share ONE working tree (edits interleave, test runs race), so the
+        audit's §11 finding is honored by serializing inside the batch.
+        """
+        results: list[TaskResult] = []
 
         from harness.orchestration.messages import ErrorEscalation
 
@@ -333,7 +339,9 @@ class HarnessPipeline:
             )
             return result
 
-        return list(await asyncio.gather(*(run_one(subtask) for subtask in batch)))
+        for subtask in batch:
+            results.append(await run_one(subtask))
+        return results
 
     def _add_collaborator(
         self, primary_agent_id: str, governor: BudgetGovernor, pack: EvidencePack, run_id: str

@@ -21,7 +21,7 @@ def _make_agent(
 ) -> tuple[LLMAgent, FakeProvider]:
     config = ModelConfig(provider="fake", name="fake-model", api_key_env="AI_API_KEY")
     provider = FakeProvider(
-        config, responses=[ModelResponse(content="done") for _ in range(responses)]
+        config, responses=[ModelResponse(content="TASK_COMPLETE: done") for _ in range(responses)]
     )
     governor = BudgetGovernor(store, BudgetConfig(), "run-1")
     agent = LLMAgent(

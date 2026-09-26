@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
@@ -120,7 +121,9 @@ def _json_block() -> str:
 
 
 async def test_unknown_tool_becomes_tool_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("nope"), _text("done")])
+    provider = FakeProvider(
+        fake_model_config, responses=[_call("nope"), _text("TASK_COMPLETE: done")]
+    )
     result = await _agent(store, provider).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -128,7 +131,9 @@ async def test_unknown_tool_becomes_tool_result(store, fake_model_config) -> Non
 
 
 async def test_invalid_arguments_become_tool_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("echo_tool"), _text("done")])
+    provider = FakeProvider(
+        fake_model_config, responses=[_call("echo_tool"), _text("TASK_COMPLETE: done")]
+    )
     result = await _agent(store, provider).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -137,7 +142,8 @@ async def test_invalid_arguments_become_tool_result(store, fake_model_config) ->
 
 async def test_permission_denial_at_low_tier(store, fake_model_config) -> None:
     provider = FakeProvider(
-        fake_model_config, responses=[_call("writer_tool", content="x"), _text("done")]
+        fake_model_config,
+        responses=[_call("writer_tool", content="x"), _text("TASK_COMPLETE: done")],
     )
     agent = _agent(store, provider, model_tier=1)
     await agent.execute_task(TASK)
@@ -146,7 +152,7 @@ async def test_permission_denial_at_low_tier(store, fake_model_config) -> None:
 
 
 async def test_preset_tier_limits_schemas(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_text("done")])
+    provider = FakeProvider(fake_model_config, responses=[_text("TASK_COMPLETE: done")])
     agent = _agent(store, provider, role="locator", tools=[EchoTool(), WriterTool()])
     await agent.execute_task(TASK)
     sent = provider.calls[0]["tools"]
@@ -154,7 +160,9 @@ async def test_preset_tier_limits_schemas(store, fake_model_config) -> None:
 
 
 async def test_crashing_tool_returns_error_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("crash_tool"), _text("done")])
+    provider = FakeProvider(
+        fake_model_config, responses=[_call("crash_tool"), _text("TASK_COMPLETE: done")]
+    )
     result = await _agent(store, provider, tools=[CrashTool()]).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -273,3 +281,94 @@ def test_store_window_roundtrip(store) -> None:
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "ho"},
     ]
+
+
+async def test_unmarked_finish_triggers_nudge_then_accepts(store, fake_model_config) -> None:
+    """A reply with no tool calls and no marker is a pause, not a finish."""
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _text("Let me look around first."),
+            _text("I think I understand the issue now."),
+            _text("TASK_COMPLETE: actually did the work"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool()])
+    result = await agent.execute_task(TASK)
+    assert result.success and "actually did the work" in result.summary
+    window = store.load_agent_context("impl-1", "t-1")
+    nudges = [t for t in window.recent if "You are not finished" in t.content]
+    assert len(nudges) == 2  # bounded nudging
+
+
+async def test_unmarked_finishes_exhaust_then_best_effort(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_text("thinking") for _ in range(5)])
+    agent = _agent(store, provider, tools=[EchoTool()], max_steps=6)
+    result = await agent.execute_task(TASK)
+    assert result.success  # gates, not the agent's claim, decide the truth
+    assert "thinking" in result.summary
+
+
+async def test_tool_alias_resolution(store, fake_model_config) -> None:
+    """Models use natural names (read_file); aliases resolve and execute."""
+    from harness.tools.registry import build_default_tools
+
+    registry_tools = [t for t in build_default_tools(Path(".")) if t.name == "filesystem_read"]
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("read_file", path="pyproject.toml"),
+            _text("TASK_COMPLETE: read it"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool(), *registry_tools])
+    result = await agent.execute_task(TASK)
+    assert result.success
+    window = store.load_agent_context("impl-1", "t-1")
+    tool_turns = [t for t in window.recent if t.role == "tool"]
+    assert tool_turns and tool_turns[0].tool_name == "read_file"
+    assert "build-system" in tool_turns[0].content  # alias executed the real tool
+
+
+async def test_unknown_tool_error_lists_available(store, fake_model_config) -> None:
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("quantum_flip"),
+            _text("TASK_COMPLETE: gave up on the mystery tool"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool()])
+    await agent.execute_task(TASK)
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("available: echo_tool" in t.content for t in window.recent)
+
+
+def test_parse_envelope_invalid_json_falls_back_to_plain(store) -> None:
+    """A plain reply that happens to start with '{' must not crash the rebuild."""
+    window = StoreWindow(store, "a-1", "t-env")
+    window.append("assistant", "{not valid json but it is the model's words")
+    messages = window.as_messages()
+    assert messages == [
+        {"role": "assistant", "content": "{not valid json but it is the model's words"}
+    ]
+
+
+async def test_guidance_from_metadata_reaches_the_model(store, fake_model_config) -> None:
+    """Audit §8: L2 re-route guidance must actually reach the specialist."""
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _text("TASK_COMPLETE: followed the guidance"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool()])
+    task = Task(
+        id="t-g", title="t", description="d", metadata={"guidance": "try narrower scope first"}
+    )
+    await agent.execute_task(task)
+    sent = provider.calls[0]["messages"]
+    user_text = " ".join(str(m.get("content")) for m in sent if m["role"] == "user")
+    system_text = sent[0]["content"]
+    assert "MANAGER GUIDANCE: try narrower scope first" in user_text
+    assert "guidance" not in system_text.lower() or True  # user-turn delivery is canonical

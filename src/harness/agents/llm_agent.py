@@ -35,6 +35,11 @@ logger = get_logger(__name__)
 
 DEFAULT_KEEP_RECENT = 24
 DEFAULT_MAX_STEPS = 16
+MAX_UNMARKED_NUDGES = 2
+_NUDGE = (
+    "You are not finished: use the available tools to complete the task now. "
+    f"Reply with '{FINAL_MARKER}: <summary>' ONLY when done."
+)
 
 _STEP_LIMIT_ERROR = "step limit reached before the agent finished"
 
@@ -240,9 +245,12 @@ class LLMAgent(BaseAgent):
         The Architect/Manager contracts need parsed structures, not prose:
         first ask, and on a malformed reply ask once more with the schema
         restated before giving up (feeds the recovery ladder as evidence).
+        Tools are withheld on structured calls: models with tool access
+        answer "I need to read the files first" with a tool call instead of
+        the required JSON (live-run finding, M4).
         """
         self.context_window.append("user", user_prompt)
-        reply = await self._generate(instruction)
+        reply = await self._generate(instruction, use_tools=False)
         try:
             return extract_json(reply.content)
         except StructuredOutputError:
@@ -251,12 +259,12 @@ class LLMAgent(BaseAgent):
                 f"Schema: {schema_hint}\nReply with ONLY the JSON object."
             )
             self.context_window.append("user", repair)
-            reply = await self._generate(instruction)
+            reply = await self._generate(instruction, use_tools=False)
             parsed = extract_json(reply.content)
             self.context_window.append("assistant", "recovered with valid JSON")
             return parsed
 
-    async def _generate(self, instruction: str) -> ModelResponse:
+    async def _generate(self, instruction: str, use_tools: bool = True) -> ModelResponse:
         self.governor.check()
         self.governor.reserve(_estimate_tokens(self.context_window.as_messages()))
         response = await self.provider.generate(
@@ -264,7 +272,7 @@ class LLMAgent(BaseAgent):
                 {"role": "system", "content": system_prompt(self.role, extra=instruction)},
                 *self.context_window.as_messages(),
             ],
-            self._tool_schemas(),
+            self._tool_schemas() if use_tools else None,
         )
         self.governor.record(
             self.agent_id, self.provider.model, response.prompt_tokens, response.completion_tokens
@@ -293,6 +301,7 @@ class LLMAgent(BaseAgent):
     async def _loop(self, task: Task) -> tuple[str, bool, str | None]:
         context = self.store.load_agent_context(self.agent_id, task.id)
         ledger = context.summary if context.summary else ""
+        unmarked_finishes = 0
         for _step in range(self.max_steps):
             self.governor.check()
             self.governor.reserve(_estimate_tokens(self._messages(task, ledger)))
@@ -324,9 +333,20 @@ class LLMAgent(BaseAgent):
                         tool_name=call["name"],
                     )
                 continue
-            self.context_window.append("assistant", response.content or "")
+            content = response.content or ""
+            if FINAL_MARKER in content:
+                self._maybe_compress(task.id)
+                return content, True, None
+            # A reply with neither tool calls nor the marker is the model
+            # pausing, not finishing (audit §6): nudge it back to work a
+            # bounded number of times, then accept its last word - the
+            # verification gates, not the model's word, judge the truth.
+            if unmarked_finishes < MAX_UNMARKED_NUDGES:
+                unmarked_finishes += 1
+                self.context_window.append("user", _NUDGE)
+                continue
             self._maybe_compress(task.id)
-            return response.content, True, None
+            return content, True, None
         self._maybe_compress(task.id)
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
@@ -357,9 +377,17 @@ class LLMAgent(BaseAgent):
         ]
 
     async def _invoke_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+        from harness.tools.registry import TOOL_ALIASES
+
         tool = next((t for t in self.tools if t.name == name), None)
+        if tool is None and name in TOOL_ALIASES:
+            # Models call tools by natural names (read_file, grep, ...);
+            # resolve the registry's canonical instance (live-run finding).
+            canonical = TOOL_ALIASES[name]
+            tool = next((t for t in self.tools if t.name == canonical), None)
         if tool is None:
-            return ToolResult(success=False, error=f"unknown tool '{name}'")
+            available = ", ".join(t.name for t in self.tools)
+            return ToolResult(success=False, error=f"unknown tool '{name}'; available: {available}")
         if errors := tool.validate_input(arguments):
             return ToolResult(success=False, error=f"invalid arguments: {'; '.join(errors)}")
         context = {"agent_id": self.agent_id, "model_tier": self.model_tier}
