@@ -5,7 +5,7 @@ VENV := .venv
 PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-.PHONY: setup run test clean lint typecheck
+.PHONY: setup run test bench-tokens clean lint typecheck
 
 setup:
 	@echo ">> Setting up environment..."
@@ -22,6 +22,9 @@ run:
 
 test:
 	$(PYTHON) -m pytest
+
+bench-tokens:
+	$(PYTHON) -m harness.cli bench
 
 lint:
 	$(VENV)/bin/ruff check src tests
