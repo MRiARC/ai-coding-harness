@@ -1,0 +1,52 @@
+{
+  "budget_total": 2000000,
+  "correlation_id": "b7fa5d658d71",
+  "governor_mode": "normal",
+  "per_agent_efficiency": {
+    "architect-1": 0.0,
+    "locator-1": 0.069,
+    "ver-1": 0.016
+  },
+  "per_agent_tokens": {
+    "architect-1": {
+      "completion_tokens": 532,
+      "prompt_tokens": 32942,
+      "total_tokens": 33474
+    },
+    "locator-1": {
+      "completion_tokens": 76,
+      "prompt_tokens": 14335,
+      "total_tokens": 14411
+    },
+    "ver-1": {
+      "completion_tokens": 299,
+      "prompt_tokens": 64045,
+      "total_tokens": 64344
+    }
+  },
+  "results": [
+    {
+      "artifacts": [],
+      "error": null,
+      "success": true,
+      "summary": "TASK_COMPLETE:: Located app.py with add() function at lines 1-2. Current implementation incorrectly returns `a - b` (subtraction), needs to be changed to `a + b` (addition). File: app.py, lines 1-2, function: add(a, b).",
+      "task_id": "subtask-1"
+    },
+    {
+      "artifacts": [],
+      "error": null,
+      "success": true,
+      "summary": "TASK_COMPLETE:: Fixed the `add` function implementation (changed subtraction to addition). All tests now pass: `test_app.py::test_add` and `test_app.py::test_greet` both passing (2/2).",
+      "task_id": "subtask-2"
+    }
+  ],
+  "stage_durations": {
+    "architect": 10.835,
+    "specialists": 31.776,
+    "verification": 5.13
+  },
+  "tasks_completed": 2,
+  "tasks_failed": 0,
+  "tasks_per_1k_tokens": 0.018,
+  "tokens_total": 112229
+}
