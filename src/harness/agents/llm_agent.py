@@ -117,9 +117,58 @@ class StoreWindow:
     def append(self, role: str, content: str) -> None:
         self._store.append_turn(self._agent_id, self._task_id, role, content)
 
-    def as_messages(self) -> list[dict[str, str]]:
+    def as_messages(self) -> list[dict[str, Any]]:
+        """Rebuild OpenAI-format messages, restoring structured tool turns.
+
+        Assistant turns that carried tool calls are stored as JSON envelopes;
+        here they are rehydrated into `tool_calls` + matching `role=tool`
+        messages so providers see a spec-valid conversation (an orphan tool
+        message gets stripped by proxies and the model never sees results).
+        """
         context = self._store.load_agent_context(self._agent_id, self._task_id)
-        return [{"role": t.role, "content": t.content} for t in context.recent]
+        messages: list[dict[str, Any]] = []
+        for turn in context.recent:
+            parsed = _parse_envelope(turn.content)
+            if turn.role == "assistant" and parsed and "tool_calls" in parsed:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": parsed.get("text") or None,
+                        "tool_calls": [
+                            {
+                                "id": call.get("id") or f"call_{turn.seq}_{i}",
+                                "type": "function",
+                                "function": {
+                                    "name": call["name"],
+                                    "arguments": json.dumps(call.get("arguments", {})),
+                                },
+                            }
+                            for i, call in enumerate(parsed["tool_calls"])
+                        ],
+                    }
+                )
+            elif turn.role == "tool" and parsed and "tool_call_id" in parsed:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": parsed["tool_call_id"],
+                        "content": str(parsed.get("output", "")),
+                    }
+                )
+            else:
+                messages.append({"role": turn.role, "content": turn.content})
+        return messages
+
+
+def _parse_envelope(content: str) -> dict[str, Any] | None:
+    """Parse a JSON tool envelope; plain text returns None."""
+    if not content.startswith("{"):
+        return None
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 class LLMAgent(BaseAgent):
@@ -217,7 +266,7 @@ class LLMAgent(BaseAgent):
         self.governor.record(
             self.agent_id, self.provider.model, response.prompt_tokens, response.completion_tokens
         )
-        self.context_window.append("assistant", _assistant_transcript(response))
+        self.context_window.append("assistant", _structured_assistant(response))
         return response
 
     async def handle_error(self, error: Exception, task: Task) -> ErrorEscalation:
@@ -253,14 +302,12 @@ class LLMAgent(BaseAgent):
                 response.prompt_tokens,
                 response.completion_tokens,
             )
-            self.context_window.append("assistant", _assistant_transcript(response))
+            self.context_window.append("assistant", _structured_assistant(response))
             if response.tool_calls:
                 unmarked_finishes = 0
                 for call in response.tool_calls:
                     result = await self._invoke_tool(call.name, call.arguments)
-                    self.context_window.append(
-                        "tool", f"[{call.name}] {result.output or result.error}"
-                    )
+                    self.context_window.append("tool", _structured_tool_result(call, result))
                 continue
             content = response.content or ""
             if FINAL_MARKER in content:
@@ -344,12 +391,31 @@ async def _call_tool(tool: Tool, arguments: dict[str, Any]) -> ToolResult:
         return ToolResult(success=False, error=f"tool crashed: {exc}")
 
 
-def _assistant_transcript(response: ModelResponse) -> str:
-    text = response.content or ""
-    if response.tool_calls:
-        calls = ", ".join(f"{c.name}({json.dumps(c.arguments)})" for c in response.tool_calls)
-        text = f"{text}\n[calls: {calls}]".strip()
-    return text
+def _structured_assistant(response: ModelResponse) -> str:
+    """Assistant turn content: JSON envelope when tool calls are present."""
+    if not response.tool_calls:
+        return response.content or ""
+    return json.dumps(
+        {
+            "text": response.content or "",
+            "tool_calls": [
+                {"id": call.id, "name": call.name, "arguments": call.arguments}
+                for call in response.tool_calls
+            ],
+        }
+    )
+
+
+def _structured_tool_result(call: Any, result: ToolResult) -> str:
+    """Tool turn content: JSON envelope carrying the call id for the reply."""
+    return json.dumps(
+        {
+            "tool_call_id": call.id,
+            "name": call.name,
+            "ok": result.success,
+            "output": (result.output or result.error or "")[:4000],
+        }
+    )
 
 
 def _classify_error(error: Exception) -> Severity:

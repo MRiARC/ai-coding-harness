@@ -28,7 +28,7 @@ class ContextWindow(Protocol):
     def append(self, role: str, content: str) -> None:
         """Record one turn (role is 'system' | 'user' | 'assistant' | 'tool')."""
 
-    def as_messages(self) -> list[dict[str, str]]:
+    def as_messages(self) -> list[dict[str, Any]]:
         """Return the window in OpenAI chat format for the model provider."""
 
 
