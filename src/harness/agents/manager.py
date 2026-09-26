@@ -115,19 +115,51 @@ def file_overlap(subtasks: list[SubTask]) -> dict[tuple[str, str], set[str]]:
 
 
 def execution_batches(subtasks: list[SubTask]) -> list[list[SubTask]]:
-    """Group subtasks into sequential batches; within a batch file-sets are
-    disjoint, so a batch can run in parallel worktrees (the escalation gate)."""
+    """Group subtasks into sequential batches (issue 2.6 + M4 dependency safety).
+
+    Within a batch file-sets are disjoint, so a batch can run in parallel
+    worktrees. Safety rules (audit §11):
+
+    - a subtask never enters a batch before every known `depends_on` id is
+      placed in an earlier batch,
+    - an empty/unknown file-set means sequential: it runs as a solo batch,
+      never parallel with anything,
+    - a dependency cycle degrades to strictly sequential solo batches.
+    """
     remaining = list(subtasks)
+    known_ids = {subtask.id for subtask in subtasks}
     batches: list[list[SubTask]] = []
+    placed: set[str] = set()
+
     while remaining:
+        ready = [
+            subtask
+            for subtask in remaining
+            if all(dep in placed for dep in subtask.depends_on if dep in known_ids)
+        ]
+        if not ready:
+            for subtask in remaining:
+                batches.append([subtask])
+            break
         batch: list[SubTask] = []
         used_files: set[str] = set()
-        for subtask in list(remaining):
-            if not (used_files & set(subtask.files)):
-                batch.append(subtask)
-                used_files |= set(subtask.files)
+        for subtask in ready:
+            files = set(subtask.files)
+            if not files or (used_files & files):
+                continue  # unknown footprint -> solo batch, never parallel
+            batch.append(subtask)
+            used_files |= files
+        if batch:
+            for subtask in batch:
                 remaining.remove(subtask)
-        batches.append(batch)
+                placed.add(subtask.id)
+            batches.append(batch)
+            continue
+        # Nothing parallelizable this round: place the first ready solo.
+        first = ready[0]
+        remaining.remove(first)
+        placed.add(first.id)
+        batches.append([first])
     return batches
 
 
