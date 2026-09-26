@@ -59,3 +59,10 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-q --cov=harness --cov-report=term-missing"
 asyncio_mode = "auto"
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+]

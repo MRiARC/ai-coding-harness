@@ -9,8 +9,10 @@ make typecheck   # mypy
 ```
 
 `pytest` is configured (see `pyproject.toml`) with coverage reporting enabled
-by default. Tests never touch the network: model calls go through
-`FakeProvider`, GitHub calls through `httpx.MockTransport`.
+by default and **`fail_under = 100`**: the suite covers every statement of
+`src/harness` and CI fails if coverage drops. Tests never touch the network:
+model calls go through `FakeProvider`, GitHub calls through
+`httpx.MockTransport`, and subprocess entry points run in-process via `runpy`.
 
 ## Writing tests
 
@@ -35,5 +37,6 @@ by default. Tests never touch the network: model calls go through
    no network, no filesystem outside `tmp_path`.
 2. Every infrastructure seam is mockable by construction (provider `client`
    injection, `ContextStore` backends, `GitHubService` client injection).
-3. Coverage stays meaningful: `pytest --cov-report=term-missing` shows gaps;
-   keep the evidence-critical paths (store, budget, recovery) well covered.
+3. Coverage stays at 100%: `pytest --cov-report=term-missing` shows any gap;
+   unreachable code must carry an explicit `# pragma: no cover` with a reason,
+   never a silent exclusion.

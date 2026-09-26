@@ -189,7 +189,7 @@ class GitHubService:
         result = await self._request(
             "GET", f"/repos/{repo}/pulls", params={"state": state, "per_page": limit}
         )
-        return result
+        return result if isinstance(result, list) else []
 
     async def pr_status(self, repo: str, pr_number: int) -> dict[str, Any]:
         """Aggregate mergeability + CI check summary for a PR."""

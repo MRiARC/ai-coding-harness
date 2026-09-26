@@ -28,10 +28,12 @@ class GitService:
         self.repo_path = Path(repo_path).resolve()
 
     async def _run(self, *args: str) -> str:
+        # `clone` runs before the destination exists; only pass cwd when it does.
+        cwd = str(self.repo_path) if self.repo_path.exists() else None
         proc = await asyncio.create_subprocess_exec(
             "git",
             *args,
-            cwd=self.repo_path,
+            cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

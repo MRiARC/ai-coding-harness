@@ -7,6 +7,7 @@ import pytest
 
 from harness.config import ModelConfig
 from harness.infrastructure.model_providers import (
+    FakeProvider,
     ModelAuthError,
     ModelResponse,
     OpenAICompatibleProvider,
@@ -154,3 +155,137 @@ async def test_retries_exhaustion_raises(monkeypatch) -> None:
     )
     with pytest.raises(RuntimeError, match="attempts"):
         await provider.generate(MSGS)
+
+
+# --- transport branches and remaining seams (100% coverage pass) --------------
+
+
+def _handler_raising(exc: Exception):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise exc
+
+    return handler
+
+
+async def test_non_injected_client_path_succeeds(monkeypatch) -> None:
+    """The no-injection branch (base builds its own AsyncClient) is covered."""
+    monkeypatch.setenv("K", "v")
+    transport_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+        )
+    )
+    monkeypatch.setattr(
+        "harness.infrastructure.model_providers.base.httpx.AsyncClient",
+        lambda **kwargs: transport_client,
+    )
+    provider = OpenAICompatibleProvider(ModelConfig(provider="openai", name="m", api_key_env="K"))
+    response = await provider.generate(MSGS)
+    assert response.content == "ok"
+    assert response.total_tokens > 0
+    await transport_client.aclose()
+
+
+async def test_timeout_is_retried_then_exhausted(monkeypatch) -> None:
+    monkeypatch.setenv("K", "v")
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            _handler_raising(
+                httpx.ConnectTimeout("slow", request=httpx.Request("POST", "http://x"))
+            )
+        )
+    )
+    provider = OpenAICompatibleProvider(
+        ModelConfig(
+            provider="openai",
+            name="m",
+            api_key_env="K",
+            max_retries=1,
+            extra={"backoff_base_seconds": 0.001},
+        ),
+        client=client,
+    )
+    with pytest.raises(RuntimeError, match="attempts"):
+        await provider.generate(MSGS)
+    await client.aclose()
+
+
+async def test_transport_error_is_retried_then_exhausted(monkeypatch) -> None:
+    monkeypatch.setenv("K", "v")
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            _handler_raising(
+                httpx.ConnectError("refused", request=httpx.Request("POST", "http://x"))
+            )
+        )
+    )
+    provider = OpenAICompatibleProvider(
+        ModelConfig(
+            provider="openai",
+            name="m",
+            api_key_env="K",
+            max_retries=1,
+            extra={"backoff_base_seconds": 0.001},
+        ),
+        client=client,
+    )
+    with pytest.raises(RuntimeError, match="attempts"):
+        await provider.generate(MSGS)
+    await client.aclose()
+
+
+async def test_retry_after_header_overrides_backoff(monkeypatch) -> None:
+    monkeypatch.setenv("K", "v")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"retry-after": "0"}, json={})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = OpenAICompatibleProvider(
+        ModelConfig(provider="openai", name="m", api_key_env="K", max_retries=1),
+        client=client,
+    )
+    with pytest.raises(RuntimeError, match="attempts"):
+        await provider.generate(MSGS)
+    await client.aclose()
+
+
+async def test_fake_provider_pass_through_seams(fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[ModelResponse(content="x")])
+    assert provider._resolve_api_key() == "fake-key"
+    assert provider._endpoint() == "fake://generate"
+    assert provider._headers("k") == {}
+    assert provider._payload(MSGS, TOOLS) == {"messages": MSGS, "tools": TOOLS}
+    with pytest.raises(NotImplementedError):
+        provider._parse_response({}, MSGS)
+    await provider.aclose()
+
+
+async def test_factory_dispatch_and_unknown_provider(fake_model_config) -> None:
+    from types import SimpleNamespace
+
+    from harness.infrastructure.model_providers import (
+        OpenAICompatibleProvider,
+        create_model_provider,
+    )
+
+    assert isinstance(create_model_provider(fake_model_config), FakeProvider)
+    assert isinstance(
+        create_model_provider(ModelConfig(provider="openai-compatible", name="m")),
+        OpenAICompatibleProvider,
+    )
+    bogus = SimpleNamespace(provider="does-not-exist")
+    with pytest.raises(ValueError, match="unknown model provider"):
+        create_model_provider(bogus)  # type: ignore[arg-type]
+
+
+async def test_fake_provider_scripted_exception(make_fake_provider) -> None:
+    provider = make_fake_provider(ValueError("model blew up"))
+    with pytest.raises(ValueError, match="model blew up"):
+        await provider.generate(MSGS)
+
+
+def test_safe_json_accepts_dict_arguments() -> None:
+    from harness.infrastructure.model_providers.openai_compatible import _safe_json
+
+    assert _safe_json({"already": "parsed"}) == {"already": "parsed"}
