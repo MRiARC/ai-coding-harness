@@ -58,6 +58,23 @@ class EvidencePack:
         return out
 
 
+def find_evidence(results_root: Path, run_id: str | None = None) -> EvidencePack | None:
+    """Locate one run's evidence pack: explicit id, else the most recent."""
+    root = Path(results_root)
+    if not root.exists():
+        return None
+    if run_id is None:
+        runs = sorted(
+            (d for d in root.iterdir() if d.is_dir()), key=lambda d: d.stat().st_mtime, reverse=True
+        )
+        if not runs:
+            return None
+        run_id = runs[0].name
+    if not (root / run_id).is_dir():
+        return None
+    return EvidencePack(root, run_id)
+
+
 def build_summary(
     run_id: str,
     issue_text: str,

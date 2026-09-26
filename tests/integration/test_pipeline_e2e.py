@@ -164,3 +164,31 @@ async def test_pipeline_without_architect_fails_honestly(demo_repo: Path) -> Non
     assert not outcome.success
     assert "no architect" in outcome.outcome_line
     store.close()
+
+
+async def test_pipeline_reports_phase_durations(
+    demo_repo: Path, config: HarnessConfig, fake_model_config
+) -> None:
+    """token-report.json carries per-phase wall-clock timings."""
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            ModelResponse(content=PROFILE_JSON),
+            ModelResponse(content=PLAN_JSON),
+            ModelResponse(content="TASK_COMPLETE: done"),
+            ModelResponse(content=VERDICT_JSON),
+        ],
+    )
+    store = SQLiteContextStore(demo_repo / ".harness" / "pipeline.db")
+    from harness.security.audit import AuditLog
+
+    pipeline = HarnessPipeline(
+        demo_repo, config, provider, store, audit=AuditLog(demo_repo / ".harness" / "audit.jsonl")
+    )
+    outcome = await pipeline.run("greet works")
+    assert outcome.success
+    token_report = json.loads((outcome.evidence_path / "token-report.json").read_text())
+    assert "architect" in token_report["stage_durations"]
+    assert "specialists" in token_report["stage_durations"]
+    assert "verification" in token_report["stage_durations"]
+    store.close()

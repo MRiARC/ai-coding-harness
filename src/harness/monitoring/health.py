@@ -29,8 +29,30 @@ class HealthReport:
         return "\n".join(lines)
 
 
+def probe_model_health(config: Any, provider: Any = None) -> tuple[bool, str]:
+    """One tiny live call. Offline-safe when the provider is FakeProvider.
+
+    Never run by default: it costs tokens and CI must stay hermetic -
+    `harness doctor --probe-model` opts in.
+    """
+    try:
+        import asyncio
+
+        from harness.infrastructure.model_providers import create_model_provider
+
+        resolved = provider or create_model_provider(config.models["default"])
+        response = asyncio.run(resolved.generate([{"role": "user", "content": "ping"}], None))
+        return True, f"model '{resolved.model}' replied ({response.total_tokens} tokens)"
+    except Exception as exc:
+        return False, str(exc)[:200]
+
+
 def run_health_checks(
-    repo_root: Path, config_path: Path | None = None, require_api_key: bool = False
+    repo_root: Path,
+    config_path: Path | None = None,
+    require_api_key: bool = False,
+    model_probe: bool = False,
+    provider: Any = None,
 ) -> HealthReport:
     """Probe the environment: store, config, credentials, git, results dir."""
     report = HealthReport()
@@ -43,10 +65,12 @@ def run_health_checks(
     check("git", git is not None, git or "git executable not found")
 
     # configuration loads
+    loaded_config: Any = None
     try:
         from harness.config import load_config
 
         config = load_config(config_path)
+        loaded_config = config
         check(
             "config",
             True,
@@ -90,6 +114,11 @@ def run_health_checks(
     except Exception as exc:
         check("results-dir", False, str(exc)[:200])
 
-    # model API reachability is deliberately NOT probed here: it costs tokens
-    # and the FakeProvider path must stay fully offline.
+    # model API reachability costs tokens, so it is opt-in via --probe-model;
+    # the FakeProvider path keeps CI fully offline.
+    if model_probe and loaded_config is not None:
+        ok, detail = probe_model_health(loaded_config, provider)
+        check("model-api", ok, detail, required=False)
+    elif model_probe:
+        check("model-api", False, "skipped: configuration failed to load", required=False)
     return report

@@ -158,25 +158,31 @@ class HarnessPipeline:
         architect = self._architect
         if architect is None:
             return self._no_architect_outcome(run_id, pack)
+        metrics.stage_started("architect")
         profile = await architect.analyze_repository(summarize_repository(self._repo_root))
         pack.trace(
             {"event": "architect.profile", "run_id": run_id, "profile": profile.model_dump()}
         )
         plan = await architect.decompose(issue_text, profile)
+        metrics.stage_finished("architect")
         pack.trace(
             {"event": "architect.plan", "run_id": run_id, "subtasks": [s.id for s in plan.subtasks]}
         )
 
         task_results: list[TaskResult] = []
+        metrics.stage_started("specialists")
         if self._manager is not None and plan.subtasks:
             ladder = RecoveryLadder(self._manager, architect, self._store)
             for batch in execution_batches(plan.subtasks):
                 outcomes = await self._run_batch(batch, ladder, metrics, pack, run_id)
                 task_results.extend(outcomes)
+        metrics.stage_finished("specialists")
 
+        metrics.stage_started("verification")
         diff = self._working_diff()
         verification = VerificationPipeline(self._repo_root)
         stage_results = await verification.run(diff, plan, architect)
+        metrics.stage_finished("verification")
         pack.patch(diff)
         pack.test_report(stage_report(stage_results))
         pack.token_report(metrics.report())
