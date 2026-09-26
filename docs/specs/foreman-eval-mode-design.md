@@ -247,3 +247,86 @@ tests/       unit/ · integration/
 6. **Fixtures, live-eval polish, clean-room run, docs** (day 10–12). Buffer: 2 days.
 
 Each stage leaves the repo in a state where `make setup && make run` works.
+
+---
+
+## Revision v1.1 (2026-09-27) — implementation status & the platform era
+
+> This revision preserves the v1.0 design in full. Nothing below changes the
+> eval-mode architecture; it records what has been built, the invariants that
+> must not be broken, and the boundary for post-hackathon platform work.
+
+### 15. Implementation status (post-M4 + universal tool-calling)
+
+Every §1–§14 mechanism now exists in code (PRs #43/#59/#68, one per milestone):
+
+| Spec element | Status |
+|---|---|
+| Eval contract (`AI_API_KEY`, `make setup/run/test`, issue as text, exit codes 0/1/2/3) | ✅ |
+| Hierarchy: Architect → Manager → Locator/Implementer/Verifier | ✅ (role prompts + role-aware routing; live-proven) |
+| Tool runtime (~12 tools, search/replace `apply_edit`, syntax gate, sandboxed exec) | ✅ |
+| Budget governor (NORMAL/SURGICAL/FINALIZE, pre-dispatch reservation) | ✅ (modes now *act*, not just label) |
+| Recovery ladder L1×3/L2×2/L3×1/L4-graceful, evidence-informed retries, genuine re-route + bounded collaborator spawn | ✅ |
+| Reproduction-first baseline + test-integrity gate (improvements §1.1/§1.3) | ✅ (6th pipeline stage; `baseline.json` in the pack) |
+| Evidence pack (`patch.diff`, `trace.jsonl`, `test-report.md`, `baseline.json`, `token-report.json`, `summary.md`) | ✅ |
+| Escalation-gated parallelism (disjoint file-sets + dependency DAG; unknown ⇒ sequential) | ✅ |
+| Universal tool-calling (probe; native **or** text protocol; reasoning-model tolerance) | ✅ (improvements §3.1) |
+| Reproducibility (pinned deps, offline FakeModel, seeded fixtures) | ✅ |
+| Localization artifact as *structured* output feeding the overlap gate | ❌ open — Locator output is prose; the gate still consumes the Architect's file guesses |
+| SWE-bench-Lite localization recall / best-of-N / HTML report | ❌ open (issues #66, M5+) |
+
+**Live verification matrix** (fixture issue, `harness solve`, exit codes):
+claude-sonnet-4.5 ✅ · deepseek-3.2 ✅ · qwen3-coder-next ✅ · glm-5 ✅ ·
+minimax-m2.5 ❌→caught (hallucinated success; gates refused it — §6 semantics
+working as designed). Full report:
+`docs/reviews/2026-09-27-universal-toolcalling-multi-model.md`.
+
+### 16. Design invariants (non-negotiable, any era)
+
+1. **The engine is the source of truth.** One Python process owns planning,
+   routing, execution, verification, and evidence. Platform layers adapt
+   *around* it; they never re-implement it.
+2. **Evidence over claims.** A model's word — including `TASK_COMPLETE` — is
+   never success. Only the deterministic gates promote work to VERIFIED.
+3. **Unattended operation.** Every failure ends in an honest exit code and an
+   evidence pack. No hang, no silent partial success.
+4. **Credentials only via env-var indirection.** Never in config, logs, or
+   traces.
+5. **Degradation beats fiction.** Missing tooling/suites/credentials reduce
+   capability and *say so* in the evidence.
+6. **The Makefile contract is sacred.** `make setup && make run` must remain
+   the whole evaluation interface, forever.
+
+### 17. The two-axis persona model (structure × substance)
+
+- **Structure** (always on): role prompts, specialties, tool-tier caps,
+  routing — the 13-entry `ROLE_PRESETS` registry. Instantiated team = the
+  five eval roles; the classic specialist personas stay frozen until a
+  benchmark proves one earns its tokens.
+- **Substance** (graduated by credentials): each agent's `model:` key may
+  point at any entry in the `models:` map — same structure, different brain
+  when extra APIs exist; identical behavior when they don't. Per-model
+  capability probing and per-model cost weighting are the prerequisites for
+  multi-model substance (probe ✅; cost weighting open).
+- The planned UI (add SDEs, assign models) is a form over this config — it
+  tunes the org; it never changes the engine.
+
+### 18. Platform boundary (post-hackathon layer)
+
+The platform epic (#69: HTTP service, event bus, persistence, richer TUI)
+is legitimate **as an adapter layer**, under these rules:
+
+- **R1 — Wrap, don't fork.** Platform components consume the engine's CLI,
+  event store, and evidence packs. `src/harness/engine/**` and
+  `src/harness/agents/**` behavior is not duplicated in Go/JS/whatever.
+- **R2 — Eval mode stays single-process.** The adapter layer is opt-in
+  (`make platform` or similar); the evaluation path never requires it.
+- **R3 — Docs hierarchy holds.** `TECHNICAL_IMPLEMENTATION.md` is vision
+  material; this spec + the code decide what gets built. Platform issues
+  cite this section, not the legacy doc.
+- **R4 — Sequencing.** Scored-axis work (M5) and the clean-room rehearsal
+  outrank platform work until submission. Postgres (P5) must *implement* the
+  store before the config guard (M4 #56) is lifted — removing the guard is
+  not an option.
+- **R5 — One cockpit.** The existing Textual cockpit is the interface of
+  record; a second TUI must replace it, not parallel it.
