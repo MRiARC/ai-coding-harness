@@ -64,3 +64,36 @@ def test_chained_dependencies_run_in_order() -> None:
     c = SubTask(id="c", title="C", description="", files=["three.py"], depends_on=["b"])
     batches = execution_batches([c, b, a])
     assert [[s.id for s in batch] for batch in batches] == [["a"], ["b"], ["c"]]
+
+
+def test_bugfix_specialty_routes_to_implementer_not_locator() -> None:
+    """Live-run regression (M4 #58): 'bugfix' tasks must reach an
+    editing-capable role, never tie onto the read-only Locator."""
+    from harness.agents.manager import (
+        SpecialistSlot,
+        assign_specialists,
+    )
+    from harness.agents.task import Task
+
+    locator = SpecialistSlot(
+        agent_id="locator-1",
+        specialties={"implementer", "localization", "code-navigation"},  # weak_specialties
+        role="locator",
+    )
+    implementer = SpecialistSlot(
+        agent_id="impl-1",
+        specialties={"implementer", "backend-api", "database", "frontend", "refactoring"},
+        role="implementer",
+    )
+    task = Task(id="t", title="Fix add()", description="", specialty="bugfix")
+    chosen = assign_specialists(task, [locator, implementer])
+    assert chosen == ["impl-1"]
+
+
+def test_role_matches_specialty_synonyms() -> None:
+    from harness.agents.manager import role_matches_specialty
+
+    assert role_matches_specialty("implementer", "bugfix")
+    assert role_matches_specialty("implementer", "fix")
+    assert not role_matches_specialty("locator", "bugfix")
+    assert not role_matches_specialty("implementer", None)

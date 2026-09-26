@@ -19,6 +19,13 @@ from harness.infrastructure.model_providers import ModelProvider
 from harness.tools.base import Tool
 
 SPECIALTY_ROLES: dict[str, tuple[str, ...]] = {
+    # Free-form specialties the Architect's plans actually emit (live-run data):
+    # they must route to an editing-capable role, not tie at neutral 0.5.
+    "bugfix": ("implementer",),
+    "bug-fix": ("implementer",),
+    "implementation": ("implementer",),
+    "fix": ("implementer",),
+    "code-change": ("implementer",),
     "backend-api": ("backend-api", "implementer"),
     "database": ("database", "backend-api"),
     "frontend": ("frontend",),

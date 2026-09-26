@@ -147,6 +147,7 @@ class HarnessPipeline:
                     specialties=weak_specialties(set(specialties)),
                     available_tools={tool.name for tool in self._tools},
                     model_tier=agent_config.model_tier,
+                    role=agent_config.role,
                 )
             )
         if self._manager is not None:
@@ -358,6 +359,7 @@ class HarnessPipeline:
                 agent_id=agent_id,
                 specialties=weak_specialties({"implementer"}),
                 available_tools={tool.name for tool in self._tools},
+                role="implementer",
             )
         )
         pack.trace(

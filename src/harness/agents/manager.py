@@ -38,6 +38,7 @@ class SpecialistSlot:
     available_tools: set[str] = field(default_factory=set)
     model_tier: int = 3
     performance: float = 0.8  # historical success rate in specialty
+    role: str = ""  # the agent's preset role (role-aware routing, audit §19)
 
 
 def specialty_match(required: str | None, specialties: set[str], performance: float) -> float:
@@ -45,6 +46,22 @@ def specialty_match(required: str | None, specialties: set[str], performance: fl
     if not required:
         return 0.5  # unrouted tasks are neutral, not disqualified
     return 1.0 if required in specialties else 0.0
+
+
+def role_matches_specialty(role: str, required: str | None) -> bool:
+    """Whether an agent's *role* can take a task of this specialty.
+
+    The Architect emits free-form specialties ("bugfix", "testing");
+    ``SPECIALTY_ROLES`` (specialists module) maps them onto roles that can do
+    the work. Live-run finding (M4 #58): without this, a "bugfix" task tied
+    at 0.5 across every slot and landed on the read-only Locator.
+    """
+    if not required:
+        return False
+    from harness.agents.specialists import SPECIALTY_ROLES
+
+    roles = SPECIALTY_ROLES.get(required, (required,))
+    return role in roles
 
 
 def availability(current_tasks: int, max_concurrent: int) -> float:
@@ -74,8 +91,11 @@ def capability(required_tools: set[str], available_tools: set[str], model_tier: 
 
 def assignment_score(task: Task, slot: SpecialistSlot, team_average_tokens: int) -> float:
     """Weighted multi-factor score from DESIGN_SPEC §5.1."""
+    specialty_hit = specialty_match(
+        task.specialty, slot.specialties, slot.performance
+    ) or role_matches_specialty(slot.role, task.specialty)
     return (
-        specialty_match(task.specialty, slot.specialties, slot.performance) * WEIGHTS["specialty"]
+        specialty_hit * WEIGHTS["specialty"]
         + availability(slot.current_tasks, slot.max_concurrent) * WEIGHTS["availability"]
         + load_balance(slot.tokens_used, team_average_tokens) * WEIGHTS["load"]
         + capability(set(task.required_tools), slot.available_tools, slot.model_tier)
