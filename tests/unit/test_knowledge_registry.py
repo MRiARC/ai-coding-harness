@@ -150,18 +150,14 @@ def test_persona_knowledge_disabled_returns_empty(tmp_path: Path) -> None:
     from pathlib import Path as _Path
 
     from harness.agents.llm_agent import LLMAgent, StoreWindow
+    from harness.config import BudgetConfig
     from harness.engine.budget import BudgetGovernor
     from harness.infrastructure.context_store import MemoryContextStore
     from harness.infrastructure.model_providers import FakeProvider
     from harness.tools.registry import build_default_tools
 
-    config = _service_config() if "_service_config" in globals() else None
     store = MemoryContextStore()
-    governor = BudgetGovernor(
-        store,
-        __import__("harness.config", fromlist=["BudgetConfig"]).BudgetConfig(total_tokens=10_000),
-        "corr-k",
-    )
+    governor = BudgetGovernor(store, BudgetConfig(total_tokens=10_000), "corr-k")
     agent = LLMAgent(
         agent_id="k-1",
         model_config={"provider": "fake"},
