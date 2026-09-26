@@ -131,7 +131,12 @@ class ToolsConfig(BaseModel):
 
 
 class StorageConfig(BaseModel):
-    """Context-store backend. `sqlite` needs nothing at eval time; `postgres` is opt-in."""
+    """Context-store backend. `sqlite` needs nothing at eval time.
+
+    `postgres` remains declared for the post-eval deployment vision but is
+    rejected at validation until implemented (audit §15 - an advertised
+    option that raises NotImplementedError mid-run is a trap).
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -184,6 +189,14 @@ class HarnessConfig(BaseModel):
         for agent in self.agents:
             if agent.model not in self.models:
                 errors.append(f"agent '{agent.agent_id}' references unknown model '{agent.model}'")
+        if self.storage.backend == "postgres":
+            # Honest config surface (audit §15): the postgres backend is an
+            # unimplemented scaffold; selecting it must fail fast, not at
+            # the first store call mid-run.
+            errors.append(
+                "storage.backend 'postgres' is not supported in eval mode; "
+                "use 'sqlite' (default) or 'memory'"
+            )
         return errors
 
 

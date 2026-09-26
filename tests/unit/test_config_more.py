@@ -39,3 +39,39 @@ def test_repo_example_config_is_always_valid() -> None:
         "verifier",
     }
     assert config.models["default"].api_key_env == "AI_API_KEY"
+
+
+def test_postgres_backend_rejected_at_validation() -> None:
+    """Audit §15: the unimplemented postgres backend fails fast, clearly."""
+    import pytest
+
+    from harness.config import ConfigError, ConfigLoader, HarnessConfig
+
+    config = HarnessConfig.model_validate(
+        {
+            "models": {"default": {"provider": "fake", "name": "m"}},
+            "storage": {"backend": "postgres"},
+        }
+    )
+    errors = config.validate_references()
+    assert any("not supported in eval mode" in error for error in errors)
+
+    # And the loader surfaces it as a ConfigError with the same message.
+    from pathlib import Path as _Path
+
+    bad = _Path("bad-harness.yaml")
+    bad.write_text("storage:\n  backend: postgres\n")
+    with pytest.raises(ConfigError) as excinfo:
+        ConfigLoader(bad).load()
+    assert "not supported in eval mode" in str(excinfo.value)
+    bad.unlink()
+
+
+def test_pinned_runtime_dependencies() -> None:
+    """Audit §16: runtime deps are exact pins, not open ranges."""
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text()
+    for package in ("pydantic==", "PyYAML==", "httpx==", "structlog==", "textual=="):
+        assert package in text
+    assert "pydantic>=" not in text

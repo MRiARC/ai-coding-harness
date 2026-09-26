@@ -5,6 +5,14 @@
 
 ---
 
+## Source of truth
+
+1. **`docs/specs/foreman-eval-mode-design.md`** — the approved runtime design (eval contract, architecture, build order).
+2. **The code in `src/harness/`** — when an older document disagrees with the code, the code wins.
+3. `DESIGN_SPEC.md` / `TECHNICAL_IMPLEMENTATION.md` are **legacy vision documents**: read for surviving concepts, never as build instructions (see `CONTEXT_FOR_AI.md`).
+
+---
+
 ## Quickstart (standard evaluation interface)
 
 ```bash
