@@ -37,10 +37,10 @@ class StubTool(Tool):
 
 
 class StubAgent(BaseAgent):
-    def execute_task(self, task: Task) -> TaskResult:
+    async def execute_task(self, task: Task) -> TaskResult:
         return TaskResult(task_id=task.id, success=True, summary="done")
 
-    def handle_error(self, error: Exception, task: Task) -> ErrorEscalation:
+    async def handle_error(self, error: Exception, task: Task) -> ErrorEscalation:
         return ErrorEscalation(
             sender=self.agent_id,
             severity=Severity.RECOVERABLE,
@@ -84,11 +84,11 @@ def test_protocol_is_runtime_checkable() -> None:
     assert isinstance(RecordingWindow(), ContextWindow)
 
 
-def test_concrete_agent_methods() -> None:
+async def test_concrete_agent_methods() -> None:
     agent = StubAgent("stub-1", {}, [], RecordingWindow())
     task = Task(id="t1", title="x", description="y")
-    assert agent.execute_task(task).success
-    escalation = agent.handle_error(ValueError("boom"), task)
+    assert (await agent.execute_task(task)).success
+    escalation = await agent.handle_error(ValueError("boom"), task)
     assert escalation.error_type == "ValueError" and escalation.severity == Severity.RECOVERABLE
     assert agent.report_status().status == AgentStatus.IDLE
 
