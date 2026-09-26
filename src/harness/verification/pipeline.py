@@ -146,6 +146,8 @@ class VerificationPipeline:
                     )
                     repro_ok = repro.success
                     evidence["reproduction_passes_after"] = repro_ok
+                    evidence["reproduction_output_tail"] = (repro.output or repro.error or "")[-800:]
+                    evidence["reproduction_command_cwd"] = str(tool._root)  # noqa: SLF001
                 if regressions:
                     passed = False
                     detail = f"baseline regressions: {', '.join(regressions[:5])}"
