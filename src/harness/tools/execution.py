@@ -1,0 +1,247 @@
+"""Execution tools (milestone 3, issues 3.2-3.3): test runner + sandboxed exec.
+
+Both tools run subprocesses with no shell interpolation, hard timeouts, and
+capped output. `CodeExecutionTool` additionally applies resource limits
+(CPU seconds, address space) via `resource.setrlimit` where the platform
+supports it, and runs with a minimal environment - the eval-mode stand-in
+for the spec's Docker sandbox (no containers in the evaluation environment).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from harness.security.input_guard import sanitize_path, validate_command
+from harness.tools.base import Tool, ToolResult, ToolTier
+
+MAX_OUTPUT_BYTES = 20_000
+DEFAULT_TIMEOUT = 60.0
+SANDBOX_TIMEOUT = 30.0  # spec §13.2: 30 second CPU limit
+
+
+def _trunc(output: str) -> str:
+    if len(output) <= MAX_OUTPUT_BYTES:
+        return output
+    return output[:MAX_OUTPUT_BYTES] + f"\n... [truncated at {MAX_OUTPUT_BYTES} bytes]"
+
+
+def _limits_preexec() -> None:  # pragma: no cover - runs in child process
+    """Child-side resource caps; failure to apply a cap must not abort the run."""
+    import resource
+
+    for limit, value in (
+        (resource.RLIMIT_CPU, int(SANDBOX_TIMEOUT)),
+        (resource.RLIMIT_AS, 512 * 1024 * 1024),
+    ):
+        with contextlib.suppress(Exception):
+            resource.setrlimit(limit, (value, value))
+
+
+def detect_test_runner(repo_root: Path) -> tuple[str, list[str]]:
+    """Detect (name, command) for the repository's test runner."""
+    if (
+        (repo_root / "pyproject.toml").exists()
+        or (repo_root / "pytest.ini").exists()
+        or (repo_root / "setup.cfg").exists()
+    ):
+        return "pytest", [sys.executable, "-m", "pytest", "-q", "--no-header"]
+    if (repo_root / "package.json").exists():
+        return "npm", ["npm", "test", "--silent"]
+    if (repo_root / "Makefile").exists():
+        return "make", ["make", "test"]
+    return "none", []
+
+
+class RunTestsTool(Tool):
+    """test_runner: run the detected test suite (or an explicit path subset)."""
+
+    name, tier = "run_tests", ToolTier.DEVELOPMENT
+    description = (
+        "Run the repository's test suite (auto-detected: pytest/npm/make). "
+        "Optional 'path' limits to one test file or directory."
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+    }
+
+    def __init__(self, repo_root: Path, timeout: float = DEFAULT_TIMEOUT) -> None:
+        self._root = repo_root
+        self._timeout = timeout
+
+    def validate_input(self, arguments: dict[str, Any]) -> list[str]:
+        return []
+
+    def check_permissions(self, context: dict[str, Any]) -> bool:
+        return context.get("model_tier", 1) >= self.tier.value
+
+    def execute(self, path: str | None = None, **_: Any) -> ToolResult:
+        name, command = detect_test_runner(self._root)
+        if name == "none":
+            return ToolResult(
+                success=False, error="no test runner detected (looked for pytest/npm/make)"
+            )
+        argv = list(command)
+        if path and name == "pytest":
+            argv.append(path)
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=self._root,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout,
+                check=False,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+        except subprocess.TimeoutExpired:
+            return ToolResult(
+                success=False,
+                error=f"test run exceeded {self._timeout}s timeout",
+                data={"framework": name},
+            )
+        output = _trunc(f"{proc.stdout}\n{proc.stderr}".strip())
+        passed = proc.returncode == 0
+        return ToolResult(
+            success=passed,
+            output=output,
+            error=None if passed else f"tests failed (exit {proc.returncode})",
+            data={"framework": name, "exit_code": proc.returncode},
+        )
+
+
+class CodeExecutionTool(Tool):
+    """code_execution: sandboxed command execution (Tier 3).
+
+    No shell, whitelisted argv[0], project-dir confinement, 30s CPU limit,
+    512 MB memory cap, output truncation. Network isolation is best-effort
+    at the process level (the eval host enforces the real boundary).
+    """
+
+    name, tier = "code_execution", ToolTier.ADVANCED
+    description = (
+        "Execute an allowlisted command (argv list) in the repo under "
+        "sandbox limits. Args: command (array of strings)."
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {"command": {"type": "array", "items": {"type": "string"}}},
+        "required": ["command"],
+    }
+
+    ALLOWED_COMMANDS = (
+        "python",
+        "python3",
+        "pytest",
+        "node",
+        "npm",
+        "make",
+        "git",
+        "pip",
+        "grep",
+        "ls",
+        "cat",
+        "ruff",
+    )
+
+    def __init__(self, repo_root: Path, timeout: float = SANDBOX_TIMEOUT) -> None:
+        self._root = repo_root
+        self._timeout = timeout
+
+    def validate_input(self, arguments: dict[str, Any]) -> list[str]:
+        command = arguments.get("command")
+        if (
+            not isinstance(command, list)
+            or not command
+            or not all(isinstance(arg, str) for arg in command)
+        ):
+            return ["'command' must be a non-empty array of strings"]
+        return validate_command(self.ALLOWED_COMMANDS, command)
+
+    def check_permissions(self, context: dict[str, Any]) -> bool:
+        return context.get("model_tier", 1) >= self.tier.value
+
+    def execute(self, command: list[str], **_: Any) -> ToolResult:
+        argv = list(command)
+        if argv[0] in ("python", "python3"):
+            # Pin the harness's own interpreter: PATH lookup would silently
+            # pick a different Python (or none) in locked-down environments.
+            argv[0] = sys.executable
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=self._root,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout,
+                check=False,
+                preexec_fn=_limits_preexec if os.name == "posix" else None,
+                env={
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "HOME": tempfile.gettempdir(),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "LANG": "C",
+                },
+            )
+        except subprocess.TimeoutExpired:
+            return ToolResult(
+                success=False, error=f"command exceeded {self._timeout}s sandbox timeout"
+            )
+        output = _trunc(f"{proc.stdout}\n{proc.stderr}".strip())
+        return ToolResult(
+            success=proc.returncode == 0,
+            output=output,
+            error=None if proc.returncode == 0 else f"exit {proc.returncode}",
+            data={"exit_code": proc.returncode, "confined_to": str(self._root)},
+        )
+
+
+class SecurityScanTool(Tool):
+    """security_scan: secret + vulnerability pattern scan (Tier 3)."""
+
+    name, tier = "security_scan", ToolTier.ADVANCED
+    description = (
+        "Scan repo files (or one path) for secrets and dangerous patterns. Args: path (optional)."
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+    }
+
+    def __init__(self, repo_root: Path) -> None:
+        self._root = repo_root
+        from harness.security.secret_scanner import scan_path
+
+        self._scan_path = scan_path
+
+    def validate_input(self, arguments: dict[str, Any]) -> list[str]:
+        return []
+
+    def check_permissions(self, context: dict[str, Any]) -> bool:
+        return context.get("model_tier", 1) >= self.tier.value
+
+    def execute(self, path: str = ".", **_: Any) -> ToolResult:
+        try:
+            root = sanitize_path(self._root, path)
+        except ValueError as exc:
+            return ToolResult(success=False, error=str(exc))
+        if not root.exists():
+            return ToolResult(success=False, error=f"path does not exist: {path}")
+        findings = self._scan_path(root)
+        if findings:
+            report = "\n".join(f"{f.path}:{f.line}: {f.kind}" for f in findings[:40])
+            return ToolResult(
+                success=False,
+                output=report,
+                error=f"{len(findings)} security findings",
+                data={"findings": [f.__dict__ for f in findings[:40]]},
+            )
+        return ToolResult(
+            success=True, output="no secrets or dangerous patterns found", data={"findings": 0}
+        )

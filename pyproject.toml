@@ -14,6 +14,7 @@ dependencies = [
     "PyYAML>=6.0",
     "httpx>=0.27",
     "structlog>=24.1",
+    "textual>=0.60",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +43,10 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tool schema dicts are intentionally shared class-level constants.
+"src/harness/tools/*" = ["RUF012"]
+
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
@@ -54,6 +59,12 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = ["psycopg"]
 ignore_missing_imports = true
+
+# Tools declare their JSON-schema parameters as named arguments; the ABC's
+# **kwargs is the dispatch contract, so the override narrowing is intentional.
+[[tool.mypy.overrides]]
+module = "harness.tools.*"
+disable_error_code = ["override"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

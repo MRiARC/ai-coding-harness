@@ -18,7 +18,7 @@ setup:
 
 run:
 	@echo ">> Launching AI Harness..."
-	$(PYTHON) -m harness doctor
+	$(PYTHON) -m harness run
 
 test:
 	$(PYTHON) -m pytest

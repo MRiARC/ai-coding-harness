@@ -137,6 +137,8 @@ class LLMAgent(BaseAgent):
         super().__init__(agent_id, model_config, tools, context_window)
         self.provider = provider
         self.store = store
+        # The pipeline replaces this placeholder with the per-run governor
+        # before execute_task; constructing without one is a wiring error.
         self.governor = governor
         self.role = role
         self.model_tier = model_tier

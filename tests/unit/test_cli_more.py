@@ -56,3 +56,11 @@ def test_direct_cli_script_execution(monkeypatch) -> None:
     with pytest.raises(SystemExit) as excinfo:
         runpy.run_path(str(cli_path), run_name="__main__")
     assert excinfo.value.code == 0
+
+
+def test_doctor_no_config_but_key_set(isolated_env, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("AI_API_KEY", "rehearsal-dummy-key")
+    assert main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "[ok] environment variable AI_API_KEY is set" in out
+    assert "offline/test mode" not in out
