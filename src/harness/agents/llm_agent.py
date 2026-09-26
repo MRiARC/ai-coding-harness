@@ -28,6 +28,13 @@ from harness.infrastructure.model_providers import (
     ModelProvider,
     ModelResponse,
 )
+from harness.infrastructure.model_providers.capability import (
+    CapabilityCache,
+    ModelCapabilities,
+    parse_tool_call_blocks,
+    render_tool_manual,
+    strip_think_blocks,
+)
 from harness.orchestration.messages import AgentStatus, ErrorEscalation, Severity, StatusUpdate
 from harness.tools.base import AsyncExecutableTool, Tool, ToolResult, ToolTier
 
@@ -43,6 +50,7 @@ issue #61). The store stays lossless; only message assembly degrades stale
 results to one-line stubs.
 """
 MAX_UNMARKED_NUDGES = 2
+_CAPABILITY_CACHE = CapabilityCache()
 REPEAT_STRIKE_THRESHOLD = 2
 DEDUP_TOOLS = frozenset({"filesystem_read", "filesystem_list", "search_text"})
 """Deterministic tools whose identical repeat calls return a cached result."""
@@ -260,6 +268,8 @@ class LLMAgent(BaseAgent):
         self.stale_tool_results = stale_tool_results
         self._active_task: str | None = None
         self._attempts: dict[str, int] = {}
+        self._capabilities: ModelCapabilities | None = None
+        self.capability_cache: CapabilityCache = _CAPABILITY_CACHE
         self._reset_dedup_state()
 
     def _reset_dedup_state(self) -> None:
@@ -273,6 +283,27 @@ class LLMAgent(BaseAgent):
     @property
     def preset(self) -> RolePreset | None:
         return ROLE_PRESETS.get(self.role)
+
+    async def native_tool_calls(self) -> bool:
+        """Whether this agent's model takes native tool calls (§3.1).
+
+        `auto` probes once per model and caches; explicit config wins.
+        Probe failure is optimistic (native), matching pre-probe behavior.
+        """
+        mode = self.provider._config.tool_call_mode  # same package boundary
+        if mode == "native":
+            return True
+        if mode == "text":
+            return False
+        if self._capabilities is None:
+            self._capabilities = await self.capability_cache.get_or_probe(self.provider)
+            logger.info(
+                "model capabilities probed",
+                model=self.provider.model,
+                native_tool_calls=self._capabilities.native_tool_calls,
+                detail=self._capabilities.detail,
+            )
+        return self._capabilities.native_tool_calls
 
     async def execute_task(self, task: Task) -> TaskResult:
         """Run the tool loop until the model stops calling tools or limits hit."""
@@ -374,11 +405,13 @@ class LLMAgent(BaseAgent):
         context = self.store.load_agent_context(self.agent_id, task.id)
         ledger = context.summary if context.summary else ""
         unmarked_finishes = 0
+        use_native = await self.native_tool_calls()
         for _step in range(self.max_steps):
             self.governor.check()
-            self.governor.reserve(_estimate_tokens(self._messages(task, ledger)))
+            self.governor.reserve(_estimate_tokens(self._messages(task, ledger, use_native)))
             response = await self.provider.generate(
-                self._messages(task, ledger), self._tool_schemas()
+                self._messages(task, ledger, use_native),
+                self._tool_schemas() if use_native else None,
             )
             self.governor.record(
                 self.agent_id,
@@ -386,6 +419,7 @@ class LLMAgent(BaseAgent):
                 response.prompt_tokens,
                 response.completion_tokens,
             )
+            content = strip_think_blocks(response.content or "")
             if response.tool_calls:
                 calls: list[dict[str, Any]] = [
                     {
@@ -395,7 +429,7 @@ class LLMAgent(BaseAgent):
                     }
                     for index, call in enumerate(response.tool_calls)
                 ]
-                self.context_window.append("assistant", response.content or "", tool_calls=calls)
+                self.context_window.append("assistant", content, tool_calls=calls)
                 for call in calls:
                     result = await self._invoke_tool(call["name"], call["arguments"])
                     self.context_window.append(
@@ -414,7 +448,19 @@ class LLMAgent(BaseAgent):
                     self._repeat_nudges += 1
                     self.context_window.append("user", _REPEAT_NUDGE)
                 continue
-            content = response.content or ""
+            if not use_native and (calls := parse_tool_call_blocks(content)):
+                # Text protocol: results go back as user turns so the wire
+                # stays valid for models without native tool-role semantics.
+                self.context_window.append("assistant", content, tool_calls=calls)
+                for call in calls:
+                    result = await self._invoke_tool(call["name"], call["arguments"])
+                    self.context_window.append(
+                        "user",
+                        f"TOOL_RESULT ({call['name']}): {result.output or result.error}",
+                        tool_call_id=call["id"],
+                        tool_name=call["name"],
+                    )
+                continue
             if FINAL_MARKER in content:
                 self._maybe_compress(task.id)
                 return content, True, None
@@ -431,8 +477,9 @@ class LLMAgent(BaseAgent):
         self._maybe_compress(task.id)
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
-    def _messages(self, task: Task, ledger: str) -> list[dict[str, Any]]:
+    def _messages(self, task: Task, ledger: str, use_native: bool = True) -> list[dict[str, Any]]:
         mode_directive = _MODE_DIRECTIVES.get(self.governor.mode(), "")
+        tool_manual = "" if use_native else render_tool_manual(self._tool_schemas())
         return [
             {
                 "role": "system",
@@ -442,6 +489,7 @@ class LLMAgent(BaseAgent):
                     extra=(
                         f"Working repo task id: {task.id}. "
                         f"End with {FINAL_MARKER} when done.{mode_directive}"
+                        + (f"\n\n{tool_manual}" if tool_manual else "")
                     ),
                 ),
             },

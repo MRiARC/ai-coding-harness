@@ -6,6 +6,38 @@
 
 ---
 
+
+---
+
+## 0. Implementation status (2026-09-27)
+
+> Living scorecard — updated as items land. References point to the commits/PRs
+> that implemented each item. ✅ done · 🟡 partial · ❌ open (see linked issue).
+
+| # | Item | Status | Where |
+|---|---|---|---|
+| 1.1 | Reproduction-first verification & baseline gating | ✅ | `6f4b364` (M4.10, #53) |
+| 1.2 | Search/replace edit format + syntax gate | ✅ | M3 `apply_edit` + `syntax_check` |
+| 1.3 | Test-integrity guard & diff minimality | ✅ | `6f4b364` (M4.10, #53) |
+| 1.4 | Isolated adversarial Verifier | 🟡 | isolation is prompt-level (M2); no enforced verdict protocol — deterministic gates (M3/M4) carry correctness |
+| 1.5 | Environment probe & baseline runnability | ✅ | M3 health checks + runner detection |
+| 2.1 | Complexity triage / fast path | 🟡 | complexity drives collaboration threshold + batch sizing; single-agent fast path below threshold not built |
+| 2.2 | Observation compression | ✅ | `69c9bae` (M5.2, #61 — stale tool-result stubs) |
+| 2.3 | Regression test selection | 🟡 | `run_tests` path subset; full import-graph selection open |
+| 2.4 | Prompt-prefix stability | 🟡 | structural (system prefix byte-stable); formal caching = #65 |
+| 2.5 | Index cache keyed by commit | 🟡 | `.harness/` caches exist; commit-keyed store open |
+| 2.6 | Personalized PageRank repo-map | ❌ | tracked with #60 (context graph) |
+| 3.1 | Model-capability probe + dual calling modes | ✅ | `doctor --probe-model` + universal tool-calling (`a6e437c`) |
+| 3.2 | Loop detector & dead-end ledger | ✅ | `69c9bae` (M5.3, #62 — dedup strikes + bounded nudges) |
+| 3.3 | Rate limiter | 🟡 | transport retry/backoff + `governor.reserve()` (token budget) exist; 429-aware concurrency limiter across parallel specialists open |
+| 4.1 | Trace replay + `make report` | 🟡 | `harness replay` shipped; HTML report open |
+| 4.2 | SWE-bench Lite localization-recall | ❌ | #66 |
+| 4.3 | Best-of-N gated fallback | ❌ | not scheduled |
+| — | Platform layer (Go gateway, Redis, Go TUI) | 🟡 | epic #69 (P1–P3 in flight, #70–#75) |
+
+---
+
+
 ## 1. Correctness improvements
 
 ### 1.1 Reproduction-first verification & baseline gating
