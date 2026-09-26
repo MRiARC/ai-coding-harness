@@ -58,11 +58,16 @@ class ModelResponse(BaseModel):
 
 
 class ModelProvider(ABC):
-    """Abstract provider: one configured model behind a single `generate` call."""
+    """Abstract provider: one configured model behind a single `generate` call.
 
-    def __init__(self, config: ModelConfig) -> None:
+    `client` is an optional pre-built httpx.AsyncClient (test seam: inject an
+    httpx.MockTransport to exercise retry/rate-limit handling offline).
+    """
+
+    def __init__(self, config: ModelConfig, client: httpx.AsyncClient | None = None) -> None:
         self._config = config
         self._api_key: str | None = None
+        self._client = client
 
     @property
     def name(self) -> str:
@@ -120,14 +125,19 @@ class ModelProvider(ABC):
         last_error: Exception | None = None
         for attempt in range(self._config.max_retries + 1):
             try:
-                async with httpx.AsyncClient(
-                    timeout=self._config.request_timeout_seconds
-                ) as client:
-                    response = await client.post(
-                        self._endpoint(),
-                        headers=self._headers(api_key),
-                        json=payload,
+                if self._client is not None:
+                    response = await self._client.post(
+                        self._endpoint(), headers=self._headers(api_key), json=payload
                     )
+                else:
+                    async with httpx.AsyncClient(
+                        timeout=self._config.request_timeout_seconds
+                    ) as client:
+                        response = await client.post(
+                            self._endpoint(),
+                            headers=self._headers(api_key),
+                            json=payload,
+                        )
             except httpx.TimeoutException as exc:
                 last_error = exc
                 logger.warning("model request timed out", attempt=attempt + 1)

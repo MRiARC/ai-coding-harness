@@ -23,8 +23,8 @@ class FakeProvider(ModelProvider):
     fails loudly rather than hallucinating further responses.
     """
 
-    def __init__(self, config: Any, responses: list[Any]) -> None:
-        super().__init__(config)
+    def __init__(self, config: Any, responses: list[Any], client: Any = None) -> None:
+        super().__init__(config, client)
         self._responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
