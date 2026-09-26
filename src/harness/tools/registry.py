@@ -12,6 +12,7 @@ from harness.tools.base import Tool
 from harness.tools.editing import ApplyEditTool, SearchTextTool, SyntaxCheckTool
 from harness.tools.execution import CodeExecutionTool, RunTestsTool, SecurityScanTool
 from harness.tools.filesystem import ListDirTool, ReadFileTool
+from harness.tools.knowledge import KnowledgeSearchTool
 from harness.tools.vcs import GitBranchTool, GitDiffTool, GitLogTool, GitStatusTool
 
 
@@ -21,6 +22,7 @@ def build_default_tools(repo_root: Path) -> list[Tool]:
     return [
         # Tier 1 - basic operations (issue 3.1)
         ReadFileTool(root),
+        KnowledgeSearchTool(),
         ListDirTool(root),
         SearchTextTool(root),
         GitStatusTool(root),
@@ -38,7 +40,7 @@ def build_default_tools(repo_root: Path) -> list[Tool]:
 
 
 TOOL_NAMES: dict[str, int] = {
-    "filesystem_read": 1,
+    "filesystem_read": 1, "search_knowledge": 1,
     "filesystem_list": 1,
     "search_text": 1,
     "git_status": 1,
