@@ -67,3 +67,60 @@ class FakeProvider(ModelProvider):
         item.prompt_tokens = item.prompt_tokens or prompt_estimate
         item.completion_tokens = item.completion_tokens or _approx_tokens(item.content)
         return item
+
+
+def build_demo_provider(config: Any) -> FakeProvider:
+    """Credential-free demo: a canned end-to-end script for any issue.
+
+    The pipeline labels the resulting evidence DEMO; never use during
+    evaluation - this exists so judges can see the full flow offline.
+    """
+    import json
+
+    responses = [
+        ModelResponse(
+            content=json.dumps(
+                {
+                    "languages": ["Python"],
+                    "frameworks": [],
+                    "test_framework": "pytest",
+                    "build_system": "pyproject.toml",
+                    "conventions": [],
+                    "notes": "demo mode (scripted)",
+                }
+            )
+        ),
+        ModelResponse(
+            content=json.dumps(
+                {
+                    "issue_summary": "demo run",
+                    "complexity": 2,
+                    "subtasks": [
+                        {
+                            "id": "st-1",
+                            "title": "address the reported issue",
+                            "description": "demo-mode placeholder change",
+                            "specialty": "verification",
+                            "complexity": 1,
+                            "files": ["README.md"],
+                            "acceptance_criteria": ["demo completes"],
+                            "depends_on": [],
+                        }
+                    ],
+                    "risks": ["demo mode produces no real changes"],
+                    "needs_collaboration": False,
+                }
+            )
+        ),
+        ModelResponse(content="TASK_COMPLETE: demo-mode specialist finished (scripted)"),
+        ModelResponse(
+            content=json.dumps(
+                {
+                    "approved": True,
+                    "issues": [],
+                    "summary": "demo verdict (scripted)",
+                }
+            )
+        ),
+    ]
+    return FakeProvider(config, responses=responses)

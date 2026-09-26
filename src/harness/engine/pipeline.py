@@ -139,7 +139,7 @@ class HarnessPipeline:
                 self._manager.register_specialist(slot)
         self._specialist_slots = slots
 
-    async def run(self, issue_text: str) -> PipelineOutcome:
+    async def run(self, issue_text: str, demo_mode: bool = False) -> PipelineOutcome:
         run_id = uuid.uuid4().hex[:12]
         governor = BudgetGovernor(self._store, self._config.budget, run_id)
         for agent in self._agents.values():
@@ -150,6 +150,8 @@ class HarnessPipeline:
             f"prompt-injection pattern: {pattern}"
             for pattern in detect_prompt_injection(issue_text)
         ]
+        if demo_mode:
+            flags.append("DEMO MODE: scripted model responses (illustrative only)")
         pack.trace(
             {"event": "run.start", "run_id": run_id, "flags": flags, "issue": issue_text[:2000]}
         )
