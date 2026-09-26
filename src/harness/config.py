@@ -1,0 +1,229 @@
+"""Configuration system (foundation issue 1.3).
+
+A typed YAML schema validated by pydantic. API credentials are never stored in
+configuration files: models reference the *name* of an environment variable
+(`api_key_env`, default `AI_API_KEY`) and the value is read at runtime. String
+values may embed `${VAR}` references that are interpolated from the environment
+at load time.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from harness.infrastructure.logging import configure_logging, get_logger
+
+logger = get_logger(__name__)
+
+ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+DEFAULT_CONFIG_PATHS = ("harness.yaml", "harness.example.yaml")
+
+
+class ConfigError(Exception):
+    """Raised when configuration cannot be loaded or validated; message is user-facing."""
+
+
+def _interpolate(value: Any) -> Any:
+    """Recursively replace ${VAR} references with environment values.
+
+    A reference to an unset variable is an error, not a silent empty string:
+    silently missing credentials are the worst failure mode at evaluation time.
+    """
+    if isinstance(value, dict):
+        return {key: _interpolate(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_interpolate(item) for item in value]
+    if isinstance(value, str):
+
+        def _sub(match: re.Match[str]) -> str:
+            var = match.group(1)
+            if var not in os.environ:
+                msg = f"environment variable '{var}' referenced in config is not set"
+                raise ConfigError(msg)
+            return os.environ[var]
+
+        return ENV_REF.sub(_sub, value)
+    return value
+
+
+class ModelConfig(BaseModel):
+    """One named model. The eval contract supplies credentials via `api_key_env`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    provider: Literal["openai", "anthropic", "google", "openai-compatible", "fake"] = (
+        "openai-compatible"
+    )
+    name: str = "gpt-4o-mini"
+    api_key_env: str = Field(
+        default="AI_API_KEY",
+        description="Environment variable HOLDING the key; the key itself is never in config.",
+    )
+    base_url: str | None = None
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=4096, ge=1)
+    request_timeout_seconds: float = Field(default=120.0, gt=0)
+    max_retries: int = Field(default=3, ge=0)
+    extra: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Provider-specific kwargs passed through to the API client.",
+    )
+
+
+class BudgetConfig(BaseModel):
+    """Token budget governor thresholds (fractions of `total_tokens`)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_tokens: int = Field(default=2_000_000, ge=1)
+    warn_fraction: float = Field(default=0.7, gt=0, lt=1)
+    surgical_fraction: float = Field(default=0.9, gt=0, le=1)
+
+    def thresholds(self) -> tuple[int, int, int]:
+        """Return (warn, surgical, stop) token counts."""
+        return (
+            int(self.total_tokens * self.warn_fraction),
+            int(self.total_tokens * self.surgical_fraction),
+            self.total_tokens,
+        )
+
+
+class AgentConfig(BaseModel):
+    """One agent in the hierarchy; `role` selects its behavior in milestone 2."""
+
+    model_config = ConfigDict(frozen=True)
+
+    agent_id: str = Field(min_length=1)
+    role: Literal["architect", "manager", "locator", "implementer", "verifier"] = "implementer"
+    model: str = Field(description="Key into the top-level `models` mapping.")
+    enabled: bool = True
+
+
+class ToolsConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    enabled: list[str] = Field(default_factory=list)
+    command_timeout_seconds: float = Field(default=60.0, gt=0)
+    allow_network_commands: bool = Field(default=False)
+
+
+class StorageConfig(BaseModel):
+    """Context-store backend. `sqlite` needs nothing at eval time; `postgres` is opt-in."""
+
+    model_config = ConfigDict(frozen=True)
+
+    backend: Literal["memory", "sqlite", "postgres"] = "sqlite"
+    sqlite_path: str = ".harness/context.db"
+    postgres_dsn_env: str = Field(
+        default="HARNESS_POSTGRES_DSN",
+        description="Env var holding the PostgreSQL DSN (never the DSN itself).",
+    )
+
+
+class LoggingConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    json_format: bool = True
+    file_path: str | None = ".harness/harness.log"
+    max_bytes: int = Field(default=10_000_000, ge=1)
+    backup_count: int = Field(default=5, ge=0)
+
+
+class RunConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    wall_clock_seconds: float = Field(default=1800.0, gt=0)
+    max_steps: int = Field(default=200, ge=1)
+    results_dir: str = "results"
+
+
+class HarnessConfig(BaseModel):
+    """Root configuration schema (`harness.yaml`)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    version: int = Field(default=1, ge=1)
+    models: dict[str, ModelConfig] = Field(
+        default_factory=lambda: {"default": ModelConfig()},
+        description="Named model configs; agents reference them by key.",
+    )
+    agents: list[AgentConfig] = Field(default_factory=list)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    run: RunConfig = Field(default_factory=RunConfig)
+
+    def validate_references(self) -> list[str]:
+        """Cross-field checks beyond pydantic's per-field validation."""
+        errors: list[str] = []
+        for agent in self.agents:
+            if agent.model not in self.models:
+                errors.append(f"agent '{agent.agent_id}' references unknown model '{agent.model}'")
+        return errors
+
+
+class ConfigLoader:
+    """Load, interpolate, and validate `harness.yaml` into a `HarnessConfig`."""
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self._path = Path(path) if path else None
+
+    def resolve_path(self) -> Path | None:
+        """Explicit path, else the first default that exists."""
+        if self._path is not None:
+            return self._path if self._path.exists() else None
+        for candidate in DEFAULT_CONFIG_PATHS:
+            if (path := Path(candidate)).exists():
+                return path
+        return None
+
+    def load(self) -> HarnessConfig:
+        """Load configuration; missing file yields defaults, invalid file is fatal."""
+        path = self.resolve_path()
+        if path is None:
+            logger.info("no configuration file found; using built-in defaults")
+            return HarnessConfig()
+
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if raw is None:
+            raw = {}
+        if not isinstance(raw, dict):
+            msg = f"{path}: top-level YAML must be a mapping, got {type(raw).__name__}"
+            raise ConfigError(msg)
+
+        try:
+            config = HarnessConfig.model_validate(_interpolate(raw))
+        except ValidationError as exc:
+            details = "\n".join(
+                f"  - {'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()
+            )
+            msg = f"{path}: invalid configuration\n{details}"
+            raise ConfigError(msg) from exc
+
+        if refs := config.validate_references():
+            msg = f"{path}: invalid configuration\n" + "\n".join(f"  - {e}" for e in refs)
+            raise ConfigError(msg)
+
+        log_cfg = config.logging
+        configure_logging(
+            level=log_cfg.level,
+            json_format=log_cfg.json_format,
+            file_path=log_cfg.file_path,
+            max_bytes=log_cfg.max_bytes,
+            backup_count=log_cfg.backup_count,
+        )
+        logger.info("configuration loaded", path=str(path))
+        return config
+
+
+def load_config(path: str | Path | None = None) -> HarnessConfig:
+    """Convenience wrapper around `ConfigLoader`."""
+    return ConfigLoader(path).load()

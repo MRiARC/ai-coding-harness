@@ -1,0 +1,62 @@
+# Harness configuration example. Copy to harness.yaml and adjust.
+#
+# Credentials are NEVER written here: models name an environment VARIABLE
+# (api_key_env) and the harness reads the value at runtime. Any string value
+# may also reference ${VAR} which is interpolated from the environment at
+# load time - a missing variable is a hard error, not an empty string.
+
+version: 1
+
+models:
+  default:
+    # The organizers' prescribed model goes here - config change only.
+    provider: openai-compatible   # openai | anthropic | google | openai-compatible | fake
+    name: prescribed-model
+    api_key_env: AI_API_KEY
+    # base_url: https://api.provider.com/v1   # required for non-default endpoints
+    temperature: 0.0
+    max_tokens: 4096
+    request_timeout_seconds: 120
+    max_retries: 3
+
+agents:
+  - agent_id: architect-1
+    role: architect
+    model: default
+  - agent_id: manager-1
+    role: manager
+    model: default
+  - agent_id: locator-1
+    role: locator
+    model: default
+  - agent_id: implementer-1
+    role: implementer
+    model: default
+  - agent_id: verifier-1
+    role: verifier
+    model: default
+
+tools:
+  enabled: []                     # empty = all available tools
+  command_timeout_seconds: 60
+  allow_network_commands: false   # eval environments are offline except the model API
+
+budget:
+  total_tokens: 2000000
+  warn_fraction: 0.7              # -> surgical mode
+  surgical_fraction: 0.9          # -> finalize-only mode
+
+storage:
+  backend: sqlite                 # memory | sqlite | postgres
+  sqlite_path: .harness/context.db
+  # postgres_dsn_env: HARNESS_POSTGRES_DSN
+
+logging:
+  level: INFO
+  json_format: true
+  file_path: .harness/harness.log
+
+run:
+  wall_clock_seconds: 1800
+  max_steps: 200
+  results_dir: results

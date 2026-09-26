@@ -5,6 +5,20 @@
 
 ---
 
+## Quickstart (standard evaluation interface)
+
+```bash
+export AI_API_KEY="<PROVIDED_API_KEY>"   # credential is supplied at runtime, never committed
+make setup    # create .venv, install pinned dependencies, verify environment
+make run      # launch the harness (doctor: validates runtime until orchestration lands)
+make test     # offline test suite with coverage
+make lint     # ruff (black/flake8-compatible) + mypy type check
+```
+
+Enable lint-on-commit hooks once: `pip install pre-commit && pre-commit install`.
+
+---
+
 ## Table of Contents
 
 1. [System Architecture Overview](#1-system-architecture-overview)
