@@ -17,6 +17,16 @@ make lint     # ruff (black/flake8-compatible) + mypy type check
 
 Enable lint-on-commit hooks once: `pip install pre-commit && pre-commit install`.
 
+**Supplying the issue to `make run`** (all protocols supported — see
+[docs/eval-runbook.md](docs/eval-runbook.md)):
+
+```bash
+echo "the issue text" | make run          # piped stdin
+HARNESS_ISSUE_FILE=issue.md make run      # file
+harness solve --issue "..." --repo /path/to/target   # direct
+harness replay                            # inspect a finished run offline
+```
+
 ---
 
 ## Table of Contents
