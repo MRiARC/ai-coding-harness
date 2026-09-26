@@ -401,6 +401,15 @@ class HarnessPipeline:
 
     def _working_diff(self) -> str:
         try:
+            # Intent-to-add first: untracked files (greenfield creation) must
+            # appear in the patch, or the evidence pack hides new work.
+            subprocess.run(
+                ["git", "add", "--intent-to-add", "-A"],
+                cwd=self._repo_root,
+                capture_output=True,
+                timeout=60,
+                check=False,
+            )
             proc = subprocess.run(
                 ["git", "diff", "HEAD"],
                 cwd=self._repo_root,

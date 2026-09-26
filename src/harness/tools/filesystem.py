@@ -198,3 +198,139 @@ def summarize_repository(repo_root: Path) -> dict[str, Any]:
         "build_files": build_files,
         "top_level": top_level,
     }
+
+
+class WriteFileTool(Tool):
+    """filesystem_write: create, overwrite, or append to a repo file (tier 2).
+
+    The creation hand the harness was missing (M5 review): `apply_edit` only
+    modifies existing files. Overwrites keep a backup in `.harness/backups/`
+    like `apply_edit`; `create` refuses to clobber an existing file.
+    """
+
+    name, tier = "filesystem_write", ToolTier.DEVELOPMENT
+    description = (
+        "Create or write a repo file. Args: path, content, "
+        "mode ('create' [default] | 'overwrite' | 'append')."
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"},
+            "mode": {"type": "string", "enum": ["create", "overwrite", "append"]},
+        },
+        "required": ["path", "content"],
+    }
+
+    MAX_WRITE_BYTES = 512_000
+
+    def __init__(self, repo_root: Path) -> None:
+        self._root = repo_root
+
+    def validate_input(self, arguments: dict[str, Any]) -> list[str]:
+        errors: list[str] = []
+        if not isinstance(arguments.get("path"), str) or not arguments.get("path"):
+            errors.append("'path' must be a non-empty string")
+        if not isinstance(arguments.get("content"), str):
+            errors.append("'content' must be a string")
+        if arguments.get("mode", "create") not in {"create", "overwrite", "append"}:
+            errors.append("'mode' must be create|overwrite|append")
+        return errors
+
+    def check_permissions(self, context: dict[str, Any]) -> bool:
+        return context.get("model_tier", 1) >= self.tier.value
+
+    def execute(self, path: str, content: str = "", mode: str = "create", **_: Any) -> ToolResult:
+        try:
+            target = sanitize_path(self._root, path)
+        except ValueError as exc:
+            return ToolResult(success=False, error=str(exc))
+        if len(content) > self.MAX_WRITE_BYTES:
+            return ToolResult(
+                success=False,
+                error=f"content exceeds {self.MAX_WRITE_BYTES} byte write cap",
+            )
+        existed = target.exists()
+        if existed and mode == "create":
+            return ToolResult(
+                success=False,
+                error=f"{path} already exists; use mode='overwrite' to replace it",
+                data={"path": path},
+            )
+        if not existed and mode in {"overwrite", "append"}:
+            return ToolResult(
+                success=False,
+                error=f"{path} does not exist; use mode='create'",
+                data={"path": path},
+            )
+        if existed and mode == "overwrite":
+            self._backup(target, path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with target.open("a" if mode == "append" else "w", encoding="utf-8") as handle:
+                handle.write(content)
+        except OSError as exc:
+            return ToolResult(success=False, error=f"cannot write {path}: {exc}")
+        return ToolResult(
+            success=True,
+            output=f"{mode}: {path} ({len(content)} bytes)",
+            data={"path": path, "mode": mode, "existed_before": existed},
+        )
+
+    def _backup(self, target: Path, path: str) -> None:
+        backup_dir = self._root / ".harness" / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        (backup_dir / f"{target.name}.bak").write_text(
+            target.read_text(encoding="utf-8", errors="replace"), encoding="utf-8"
+        )
+
+
+class GlobTool(Tool):
+    """glob_files: pattern-matched file listing across the repo (tier 1)."""
+
+    name, tier = "glob_files", ToolTier.BASIC
+    description = (
+        "List repo files matching a glob pattern (e.g. '**/*.py', 'src/*.js'). "
+        "Args: pattern, path (optional root subdir)."
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {"pattern": {"type": "string"}, "path": {"type": "string"}},
+        "required": ["pattern"],
+    }
+
+    MAX_MATCHES = 200
+
+    def __init__(self, repo_root: Path) -> None:
+        self._root = repo_root
+
+    def validate_input(self, arguments: dict[str, Any]) -> list[str]:
+        return [] if arguments.get("pattern") else ["'pattern' is required"]
+
+    def check_permissions(self, context: dict[str, Any]) -> bool:
+        return True
+
+    def execute(self, pattern: str, path: str = ".", **_: Any) -> ToolResult:
+        try:
+            root = sanitize_path(self._root, path)
+        except ValueError as exc:
+            return ToolResult(success=False, error=str(exc))
+        if not root.is_dir():
+            return ToolResult(success=False, error=f"not a directory: {path}")
+        matches: list[str] = []
+        for candidate in sorted(root.rglob(pattern)):
+            if not candidate.is_file() or candidate.suffix in {".pyc", ".db", ".sqlite"}:
+                continue
+            if any(part in SKIP_DIRS for part in candidate.parts):
+                continue
+            rel = candidate.relative_to(self._root).as_posix()
+            matches.append(rel)
+            if len(matches) >= self.MAX_MATCHES:
+                matches.append(f"... [capped at {self.MAX_MATCHES} files]")
+                break
+        if not matches:
+            return ToolResult(
+                success=True, output=f"no files match {pattern!r}", data={"matches": 0}
+            )
+        return ToolResult(success=True, output="\n".join(matches), data={"matches": len(matches)})

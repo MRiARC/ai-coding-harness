@@ -53,12 +53,37 @@ class IntegrityReport:
     warnings: list[str] = field(default_factory=list)
 
 
+def _diff_sections(diff: str) -> list[tuple[str, bool]]:
+    """(path, is_new_file) per diff section — new files come from /dev/null."""
+    sections: list[tuple[str, bool]] = []
+    last_old = "/dev/null"
+    for line in diff.splitlines():
+        if line.startswith("--- "):
+            last_old = line[4:].strip()
+        elif line.startswith("+++ b/"):
+            name = line[6:].strip()
+            if name and name != "/dev/null":
+                sections.append((name, last_old == "/dev/null"))
+    return sections
+
+
 def classify_diff(diff: str, allow_test_edits: bool = False) -> IntegrityReport:
-    """Violations block the run; warnings are advisory evidence only."""
+    """Violations block the run; warnings are advisory evidence only.
+
+    The guard protects *existing* tests from being weakened: creating a NEW
+    test file (greenfield authoring, `--- /dev/null` source) is allowed —
+    modifying a tracked test file is a violation unless the plan allows it.
+    """
     report = IntegrityReport()
-    for path in changed_files(diff):
-        if is_test_file(path) and not allow_test_edits:
-            report.violations.append(f"test file modified without plan allowance: {path}")
+    new_test_files: list[str] = []
+    for path, is_new in _diff_sections(diff):
+        if is_test_file(path):
+            if is_new:
+                new_test_files.append(path)
+            elif not allow_test_edits:
+                report.violations.append(f"test file modified without plan allowance: {path}")
+    if new_test_files:
+        report.warnings.append("new test file(s) authored: " + ", ".join(new_test_files[:5]))
     for line in diff.splitlines():
         if (
             line.startswith("+")
