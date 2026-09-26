@@ -1,512 +1,588 @@
-# LCC x DevClub AI Coding Harness - Architecture Diagrams
+# LCC x DevClub AI Coding Harness - Architecture Documentation
 
-## 1. Complete System Architecture (5-Layer View)
+> **Autonomous Coding Agent Harness for Software Engineering Tasks**  
+> A hierarchical multi-agent system with intelligent orchestration, error recovery, and verification pipelines.
+
+---
+
+## Table of Contents
+
+1. [System Architecture Overview](#1-system-architecture-overview)
+2. [Agent Workflow Pipeline](#2-agent-workflow-pipeline)
+3. [Error Recovery & Escalation](#3-error-recovery--escalation)
+4. [Task Assignment Algorithm](#4-task-assignment-algorithm)
+5. [Context Management](#5-context-management)
+6. [Git Workflow](#6-git-workflow)
+7. [Tool Ecosystem](#7-tool-ecosystem)
+8. [Resource Management](#8-resource-management)
+9. [Security Architecture](#9-security-architecture)
+10. [Verification Pipeline](#10-verification-pipeline)
+
+---
+
+## 1. System Architecture Overview
+
+### 1.1 Five-Layer Architecture
+
+The system is organized into five distinct layers, each with specific responsibilities:
 
 ```mermaid
 graph TB
-    subgraph UI["🖥️ USER INTERFACE LAYER"]
-        Dashboard["📊 Web Dashboard<br/>Task Board | Agent Status<br/>Token Usage | GitHub Feed"]
-        ConfigUI["⚙️ Configuration UI<br/>Drag-Drop Builder<br/>Model Selection | Tools"]
-        TestWindow["🧪 Testing Window<br/>Terminal | API Tester<br/>Browser Preview"]
-        Monitoring["📈 Monitoring<br/>Metrics | Costs<br/>Alerts | Health"]
-        API["🔌 REST API<br/>Task Creation<br/>Status | Metrics"]
+    subgraph Layer1[" "]
+        direction LR
+        UI1["Web Dashboard"]
+        UI2["Configuration Interface"]
+        UI3["Testing Console"]
+        UI4["Monitoring System"]
+        UI5["REST API"]
     end
     
-    subgraph ORCH["👑 ORCHESTRATION LAYER"]
-        Architect["<b>ARCHITECT AGENT</b><br/>━━━━━━━━━━━━━━<br/>Model: GPT-4/Claude Opus<br/>━━━━━━━━━━━━━━<br/>✓ Analyze repository<br/>✓ Extract global rules<br/>✓ Decompose tasks<br/>✓ Create GitHub issues<br/>✓ Final PR review & merge"]
+    subgraph Layer2[" "]
+        Architect["ARCHITECT AGENT<br/>────────────────<br/>• Repository Analysis<br/>• Task Decomposition<br/>• Global Rule Extraction<br/>• GitHub Issue Creation<br/>• Final PR Review<br/>────────────────<br/>Model: GPT-4 / Claude Opus<br/>Temperature: 0.2"]
     end
     
-    subgraph COORD["🎯 COORDINATION LAYER"]
-        Mgr1["<b>MANAGER 1: Backend</b><br/>━━━━━━━━━━━━<br/>Model: Claude Sonnet<br/>━━━━━━━━━━━━<br/>Max Specialists: 8<br/>━━━━━━━━━━━━<br/>Multi-Factor Assignment:<br/>• Specialty (40%)<br/>• Availability (20%)<br/>• Load Balance (20%)<br/>• Capability (20%)"]
-        
-        Mgr2["<b>MANAGER 2: Frontend</b><br/>━━━━━━━━━━━━<br/>Model: GPT-4-mini<br/>━━━━━━━━━━━━<br/>Max Specialists: 6<br/>━━━━━━━━━━━━<br/>Coordinates:<br/>• React/Vue specialists<br/>• Styling specialists<br/>• Frontend testing"]
-        
-        Mgr3["<b>MANAGER 3: DevOps</b><br/>━━━━━━━━━━━━<br/>Model: Gemini Flash<br/>━━━━━━━━━━━━<br/>Max Specialists: 4<br/>━━━━━━━━━━━━<br/>Handles:<br/>• CI/CD pipelines<br/>• Infrastructure<br/>• Security scans"]
+    subgraph Layer3[" "]
+        M1["MANAGER: Backend<br/>──────────────<br/>Coordinates 8 specialists<br/>Backend API, Database,<br/>Authentication, Caching"]
+        M2["MANAGER: Frontend<br/>──────────────<br/>Coordinates 6 specialists<br/>React, Vue, Styling,<br/>Testing"]
+        M3["MANAGER: DevOps<br/>──────────────<br/>Coordinates 4 specialists<br/>CI/CD, Infrastructure,<br/>Security"]
     end
     
-    subgraph EXEC["⚡ EXECUTION LAYER"]
-        SD1["SD-Backend-API<br/>(Tier 2)"]
-        SD2["SD-Database<br/>(Tier 3)"]
-        SD3["SD-React<br/>(Tier 2)"]
-        SD4["SD-Styling<br/>(Tier 2)"]
-        SD5["SD-DevOps<br/>(Tier 2)"]
-        SD6["SD-Security<br/>(Tier 3)"]
-        SD7["SD-Testing<br/>(Tier 3)"]
-        SD8["SD-Reviewer<br/>(Tier 4)"]
+    subgraph Layer4[" "]
+        S1["Backend-API<br/>Specialist"]
+        S2["Database<br/>Specialist"]
+        S3["React<br/>Specialist"]
+        S4["DevOps<br/>Specialist"]
+        S5["Security<br/>Specialist"]
+        S6["Testing<br/>Specialist"]
     end
     
-    subgraph INFRA["🏗️ INFRASTRUCTURE LAYER"]
-        Context["📊 Context Store<br/>PostgreSQL/MongoDB<br/>━━━━━━━━━━<br/>• Global context<br/>• Per-agent contexts<br/>• Time-windowed compression"]
-        
-        Tools["🔧 Tool Runtime<br/>23+ Tools<br/>━━━━━━━━━━<br/>Tier 1: Read ops<br/>Tier 2: Write/Test<br/>Tier 3: DB/Security"]
-        
-        Models["🤖 Model APIs<br/>Multi-Provider<br/>━━━━━━━━━━<br/>• OpenAI<br/>• Anthropic<br/>• Google<br/>• Open-Source"]
-        
-        GitHub["🐙 GitHub<br/>Integration<br/>━━━━━━━━━━<br/>• Issues<br/>• Pull Requests<br/>• CI/CD<br/>• Branch Protection"]
+    subgraph Layer5[" "]
+        I1["Context Store<br/>PostgreSQL"]
+        I2["Tool Runtime<br/>23+ Tools"]
+        I3["Model APIs<br/>Multi-Provider"]
+        I4["GitHub<br/>Integration"]
     end
     
-    UI --> Architect
-    Architect -->|Backend Tasks| Mgr1
-    Architect -->|Frontend Tasks| Mgr2
-    Architect -->|DevOps Tasks| Mgr3
+    Layer1 --> Architect
+    Architect --> M1
+    Architect --> M2
+    Architect --> M3
+    M1 --> S1
+    M1 --> S2
+    M1 --> S6
+    M2 --> S3
+    M3 --> S4
+    M3 --> S5
+    Layer4 -.-> Layer5
     
-    Mgr1 --> SD1
-    Mgr1 --> SD2
-    Mgr1 --> SD7
-    
-    Mgr2 --> SD3
-    Mgr2 --> SD4
-    Mgr2 --> SD8
-    
-    Mgr3 --> SD5
-    Mgr3 --> SD6
-    
-    EXEC -.->|Uses| INFRA
-    
-    style UI fill:#E3F2FD,stroke:#1976D2,stroke-width:3px
-    style ORCH fill:#FFF3E0,stroke:#F57C00,stroke-width:3px
-    style COORD fill:#F3E5F5,stroke:#7B1FA2,stroke-width:3px
-    style EXEC fill:#E8F5E9,stroke:#388E3C,stroke-width:3px
-    style INFRA fill:#ECEFF1,stroke:#455A64,stroke-width:3px
-    
-    style Architect fill:#FFE082,stroke:#F57C00,stroke-width:3px
-    style Mgr1 fill:#CE93D8,stroke:#7B1FA2,stroke-width:2px
-    style Mgr2 fill:#CE93D8,stroke:#7B1FA2,stroke-width:2px
-    style Mgr3 fill:#CE93D8,stroke:#7B1FA2,stroke-width:2px
+    classDef default stroke:#333,stroke-width:2px
 ```
+
+**Layer Descriptions:**
+
+- **Layer 1 - User Interface**: All user-facing components for interaction, monitoring, and configuration
+- **Layer 2 - Orchestration**: Single architect agent responsible for high-level coordination
+- **Layer 3 - Coordination**: Manager agents that route tasks and monitor specialist progress
+- **Layer 4 - Execution**: Specialist agents that implement features, write tests, and create pull requests
+- **Layer 5 - Infrastructure**: Supporting services for persistence, tools, models, and version control
 
 ---
 
-## 2. Specialist Workflow (11-Step Process)
+## 2. Agent Workflow Pipeline
+
+### 2.1 Eleven-Step Specialist Execution Flow
+
+Each specialist follows a standardized workflow from task receipt to integration:
 
 ```mermaid
-graph LR
-    S1["1️⃣ RECEIVE TASK<br/>━━━━━━━━━<br/>Manager assigns<br/>via multi-factor<br/>scoring"]
+flowchart LR
+    Start([Task Assigned]) --> S1[1. Receive Task<br/>& Context]
+    S1 --> S2[2. Create Branch<br/>agent/id/issue-desc]
+    S2 --> S3[3. Implement<br/>Code + Tests]
+    S3 --> S4[4. Self-Verify<br/>Run Tests Locally]
     
-    S2["2️⃣ CREATE BRANCH<br/>━━━━━━━━━<br/>agent/id/issue-desc"]
+    S4 --> Decision{Tests<br/>Pass?}
+    Decision -->|No| S5[5. Error Recovery<br/>Max 3 Attempts]
+    S5 --> Retry{Fixed?}
+    Retry -->|Yes| S6
+    Retry -->|No| Escalate[Escalate to<br/>Manager]
+    Decision -->|Yes| S6[6. Commit & Push]
     
-    S3["3️⃣ IMPLEMENT<br/>━━━━━━━━━<br/>Write code<br/>Write tests<br/>Run linter"]
+    S6 --> S7[7. Create Pull Request]
+    S7 --> S8[8. CI/CD Checks<br/>Automated]
+    S8 --> S9[9. Code Review<br/>Optional Agent]
+    S9 --> S10[10. Manager Review<br/>Conflict Check]
+    S10 --> S11[11. Architect Review<br/>& Merge]
+    S11 --> End([Integration<br/>Complete])
     
-    S4["4️⃣ SELF-VERIFY<br/>━━━━━━━━━<br/>Run all tests<br/>Check coverage<br/>Review diffs"]
-    
-    S5["5️⃣ ERROR RECOVERY<br/>━━━━━━━━━<br/>Attempt 1: Fix syntax<br/>Attempt 2: Debug<br/>Attempt 3: Alt approach<br/>Failed? → Escalate"]
-    
-    S6["6️⃣ COMMIT & PR<br/>━━━━━━━━━<br/>Commit with<br/>type: desc<br/>Push & raise PR"]
-    
-    S7["7️⃣ CI/CD CHECKS<br/>━━━━━━━━━<br/>Lint ✓ Test ✓<br/>Build ✓ Coverage ✓<br/>Security ✓"]
-    
-    S8["8️⃣ REVIEW<br/>━━━━━━━━━<br/>Code quality<br/>agent reviews<br/>(optional)"]
-    
-    S9["9️⃣ MANAGER<br/>━━━━━━━━━<br/>Validates<br/>Checks conflicts<br/>Approves"]
-    
-    S10["🔟 ARCHITECT<br/>━━━━━━━━━<br/>Final validation<br/>Intent match ✓<br/>MERGE 🎉"]
-    
-    S11["✅ UPDATE<br/>━━━━━━━━━<br/>Global context<br/>Metrics logged<br/>User notified"]
-    
-    S1 --> S2 --> S3 --> S4
-    S4 -.->|If Error| S5
-    S5 --> S6
-    S4 -->|Success| S6
-    S6 --> S7 --> S8 --> S9 --> S10 --> S11
-    
-    style S1 fill:#A5D6A7,stroke:#388E3C,stroke-width:2px
-    style S2 fill:#A5D6A7,stroke:#388E3C,stroke-width:2px
-    style S3 fill:#A5D6A7,stroke:#388E3C,stroke-width:2px
-    style S4 fill:#A5D6A7,stroke:#388E3C,stroke-width:2px
-    style S5 fill:#FFE082,stroke:#F57C00,stroke-width:2px
-    style S6 fill:#A5D6A7,stroke:#388E3C,stroke-width:2px
-    style S7 fill:#BBDEFB,stroke:#1976D2,stroke-width:2px
-    style S8 fill:#F8BBD0,stroke:#C2185B,stroke-width:2px
-    style S9 fill:#CE93D8,stroke:#7B1FA2,stroke-width:2px
-    style S10 fill:#FFE082,stroke:#F57C00,stroke-width:2px
-    style S11 fill:#C8E6C9,stroke:#388E3C,stroke-width:2px
+    classDef default stroke:#333,stroke-width:2px
 ```
+
+**Key Characteristics:**
+
+1. **Isolation**: Each specialist works in a dedicated branch
+2. **Self-Verification**: Agents validate their work before submission
+3. **Progressive Review**: Multiple validation stages ensure quality
+4. **Error Recovery**: Built-in retry mechanism with escalation path
 
 ---
 
-## 3. Error Recovery & Escalation (3-Level Hierarchy)
+## 3. Error Recovery & Escalation
+
+### 3.1 Four-Level Recovery Hierarchy
+
+The system provides graduated error handling with increasing human involvement:
 
 ```mermaid
 graph TD
-    Error["❌ ERROR ENCOUNTERED<br/>━━━━━━━━━━━━━<br/>Test failure | API timeout<br/>Invalid output | Tool error"]
+    Error["ERROR DETECTED<br/>──────────────<br/>Test Failure | API Timeout<br/>Invalid Output | Tool Error"]
     
-    Level1["<b>LEVEL 1: SELF-RECOVERY</b><br/>━━━━━━━━━━━━━━━━━<br/>Specialist Agent Attempts:<br/>━━━━━━━━━━━━━━━━━<br/>Attempt 1: Parse error, fix syntax<br/>Attempt 2: Debug logic, try fix<br/>Attempt 3: Alternative approach<br/>━━━━━━━━━━━━━━━━━<br/>Max 3 attempts or 30min"]
+    L1["LEVEL 1: Specialist Self-Recovery<br/>────────────────────────────<br/>Attempt 1: Parse error message, fix syntax<br/>Attempt 2: Debug logic, alternative fix<br/>Attempt 3: Different approach entirely<br/>────────────────────────────<br/>Constraint: Maximum 3 attempts or 30 minutes"]
     
-    Success1["✅ RESOLVED<br/>Continue task"]
+    L2["LEVEL 2: Manager Intervention<br/>──────────────────────────<br/>Analysis:<br/>• Skill Gap → Reassign to different specialist<br/>• Tool Limitation → Grant access or upgrade model<br/>• Complex Task → Assign 2-3 specialists to collaborate<br/>• Unclear Requirements → Reframe task with clarity<br/>──────────────────────────<br/>Monitoring: Token consumption vs. progress ratio"]
     
-    Level2["<b>LEVEL 2: MANAGER INTERVENTION</b><br/>━━━━━━━━━━━━━━━━━━━━━<br/>Manager Analyzes Error Type:<br/>━━━━━━━━━━━━━━━━━━━━━<br/>• Skill Gap → Reassign specialist<br/>• Tool Limitation → Grant access/upgrade model<br/>• Complex Task → Assign 2-3 specialists<br/>• Unclear Requirements → Reframe task<br/>━━━━━━━━━━━━━━━━━━━━━<br/>Monitors: token usage vs progress"]
+    L3["LEVEL 3: Architect Escalation<br/>────────────────────────<br/>Strategic Review:<br/>• Task specification unclear → Reformulate completely<br/>• Task too complex → Decompose into subtasks<br/>• Missing repository context → Perform deep analysis<br/>• Conflicting requirements → Request user decision<br/>────────────────────────<br/>Authority: Can reassign to different manager team"]
     
-    Success2["✅ RESOLVED<br/>Continue task"]
+    L4["LEVEL 4: Human Intervention<br/>───────────────────────<br/>Required When:<br/>• Architect cannot resolve after analysis<br/>• External system or infrastructure failure<br/>• User decision needed on trade-offs<br/>• Budget constraints exceeded<br/>• Security judgment required<br/>───────────────────────<br/>Notification: Dashboard alert + optional email/Slack"]
     
-    Level3["<b>LEVEL 3: ARCHITECT ESCALATION</b><br/>━━━━━━━━━━━━━━━━━━━━━━━<br/>Architect Reviews:<br/>━━━━━━━━━━━━━━━━━━━━━━━<br/>• Task specification unclear → Reformulate<br/>• Task too complex → Decompose subtasks<br/>• Repository context missing → Deep analysis<br/>• Conflicting requirements → User decision<br/>━━━━━━━━━━━━━━━━━━━━━━━<br/>Can reassign to different manager team"]
+    Success1["✓ Resolved<br/>Continue"]
+    Success2["✓ Resolved<br/>Continue"]
+    Success3["✓ Resolved<br/>Continue"]
     
-    Success3["✅ RESOLVED<br/>Task reformulated"]
+    Error --> L1
+    L1 -->|Success| Success1
+    L1 -->|3 Failures| L2
+    L2 -->|Success| Success2
+    L2 -->|2 Failures| L3
+    L3 -->|Success| Success3
+    L3 -->|Cannot Resolve| L4
     
-    Human["<b>LEVEL 4: HUMAN-IN-THE-LOOP</b><br/>━━━━━━━━━━━━━━━━━━━━<br/>User Intervention Required:<br/>━━━━━━━━━━━━━━━━━━━━<br/>• Architect cannot resolve<br/>• Infrastructure/external failures<br/>• User decision needed<br/>• Budget exceeded<br/>• Security judgment call<br/>━━━━━━━━━━━━━━━━━━━━<br/>Dashboard alert + optional email/Slack"]
-    
-    Error --> Level1
-    Level1 -->|Success| Success1
-    Level1 -->|Failed after 3 attempts| Level2
-    Level2 -->|Success| Success2
-    Level2 -->|Failed after 2 attempts| Level3
-    Level3 -->|Success| Success3
-    Level3 -->|Cannot resolve| Human
-    
-    style Error fill:#FFCDD2,stroke:#C62828,stroke-width:3px
-    style Level1 fill:#C8E6C9,stroke:#388E3C,stroke-width:2px
-    style Level2 fill:#CE93D8,stroke:#7B1FA2,stroke-width:2px
-    style Level3 fill:#FFE082,stroke:#F57C00,stroke-width:2px
-    style Human fill:#FFEBEE,stroke:#D32F2F,stroke-width:3px
-    style Success1 fill:#A5D6A7,stroke:#388E3C,stroke-width:2px
-    style Success2 fill:#A5D6A7,stroke:#388E3C,stroke-width:2px
-    style Success3 fill:#A5D6A7,stroke:#388E3C,stroke-width:2px
+    classDef default stroke:#333,stroke-width:2px
 ```
+
+**Escalation Criteria:**
+
+- **Level 1 → 2**: After 3 failed attempts or 30 minutes elapsed
+- **Level 2 → 3**: After 2 manager intervention attempts fail
+- **Level 3 → 4**: When architect determines human decision required
 
 ---
 
-## 4. Multi-Factor Task Assignment Algorithm
+## 4. Task Assignment Algorithm
+
+### 4.1 Multi-Factor Scoring System
+
+Managers use a weighted scoring algorithm to assign tasks optimally:
 
 ```mermaid
 graph LR
-    Task["📋 TASK RECEIVED<br/>━━━━━━━━━<br/>Complexity: 7/10<br/>Specialty: Backend API<br/>Priority: High<br/>Tools: filesystem, git, database"]
+    Task["INCOMING TASK<br/>─────────────<br/>Complexity: 7/10<br/>Specialty: Backend API<br/>Priority: High<br/>Required Tools:<br/>filesystem, git, database"]
     
-    Factor1["<b>FACTOR 1</b><br/>Specialty Match<br/>(40% weight)<br/>━━━━━━━━<br/>Backend-API-1: 95<br/>Database-1: 30<br/>Frontend-1: 10"]
+    F1["Factor 1<br/>SPECIALTY MATCH<br/>─────────────<br/>Weight: 40%<br/>─────────────<br/>Measures domain expertise<br/>alignment with task<br/>requirements"]
     
-    Factor2["<b>FACTOR 2</b><br/>Availability<br/>(20% weight)<br/>━━━━━━━━<br/>Backend-API-1: 100<br/>(0 active tasks)<br/>Database-1: 60<br/>(2 active tasks)"]
+    F2["Factor 2<br/>AVAILABILITY<br/>─────────────<br/>Weight: 20%<br/>─────────────<br/>Current task load<br/>and queue length"]
     
-    Factor3["<b>FACTOR 3</b><br/>Load Balance<br/>(20% weight)<br/>━━━━━━━━<br/>Backend-API-1: 100<br/>(30k tokens used)<br/>Database-1: 60<br/>(70k tokens used)"]
+    F3["Factor 3<br/>LOAD BALANCE<br/>─────────────<br/>Weight: 20%<br/>─────────────<br/>Token consumption<br/>vs team average"]
     
-    Factor4["<b>FACTOR 4</b><br/>Capability<br/>(20% weight)<br/>━━━━━━━━<br/>Backend-API-1: 50<br/>(Tier 2, no DB tool)<br/>Database-1: 100<br/>(Tier 3, has DB tool)"]
+    F4["Factor 4<br/>CAPABILITY<br/>─────────────<br/>Weight: 20%<br/>─────────────<br/>Model tier and<br/>tool permissions"]
     
-    Calculate["🧮 CALCULATE<br/>━━━━━━━━<br/>Backend-API-1:<br/>95×0.4 + 100×0.2<br/>+ 100×0.2 + 50×0.2<br/>= 88 total<br/>━━━━━━━━<br/>Database-1:<br/>30×0.4 + 60×0.2<br/>+ 60×0.2 + 100×0.2<br/>= 56 total"]
+    Calc["CALCULATION<br/>──────────────<br/>For each specialist:<br/>──────────────<br/>Score = <br/>specialty × 0.4<br/>+ availability × 0.2<br/>+ load_balance × 0.2<br/>+ capability × 0.2"]
     
-    Decision["✅ ASSIGN<br/>━━━━━━━━<br/>Task → Database-1<br/>(Higher capability<br/>for database needs)<br/>━━━━━━━━<br/>If complexity > 7:<br/>Assign top 2-3"]
+    Decision["ASSIGNMENT<br/>────────────<br/>If complexity ≤ 7:<br/>Assign highest scorer<br/>────────────<br/>If complexity > 7:<br/>Assign top 2-3<br/>for collaboration"]
     
-    Task --> Factor1
-    Task --> Factor2
-    Task --> Factor3
-    Task --> Factor4
+    Task --> F1
+    Task --> F2
+    Task --> F3
+    Task --> F4
+    F1 --> Calc
+    F2 --> Calc
+    F3 --> Calc
+    F4 --> Calc
+    Calc --> Decision
     
-    Factor1 --> Calculate
-    Factor2 --> Calculate
-    Factor3 --> Calculate
-    Factor4 --> Calculate
-    
-    Calculate --> Decision
-    
-    style Task fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
-    style Factor1 fill:#FFF9C4,stroke:#F57C00,stroke-width:2px
-    style Factor2 fill:#FFF9C4,stroke:#F57C00,stroke-width:2px
-    style Factor3 fill:#FFF9C4,stroke:#F57C00,stroke-width:2px
-    style Factor4 fill:#FFF9C4,stroke:#F57C00,stroke-width:2px
-    style Calculate fill:#BBDEFB,stroke:#1976D2,stroke-width:2px
-    style Decision fill:#C8E6C9,stroke:#388E3C,stroke-width:3px
+    classDef default stroke:#333,stroke-width:2px
 ```
+
+**Scoring Details:**
+
+- **Specialty Match (40%)**: Historical success rate on similar tasks
+- **Availability (20%)**: 100 if idle, decreases with active tasks
+- **Load Balance (20%)**: Relative to team average token consumption
+- **Capability (20%)**: Model tier and required tool access
 
 ---
 
-## 5. Context Management System
+## 5. Context Management
+
+### 5.1 Hierarchical Context Architecture
+
+Context is organized globally and per-agent with time-based compression:
 
 ```mermaid
 graph TB
-    subgraph Global["🌍 GLOBAL CONTEXT STORE"]
-        RepoMeta["📁 Repository Metadata<br/>• Name, URL, branch<br/>• File structure<br/>• Dependencies<br/>• Build/test commands"]
-        
-        Tasks["📋 Active Tasks<br/>• Task ID, status<br/>• Assigned agents<br/>• Priority, complexity<br/>• Dependency graph"]
-        
-        Agents["👥 Agent Registry<br/>• Agent ID, type, status<br/>• Current task<br/>• Tokens consumed<br/>• Availability score"]
-        
-        Rules["📜 Global Rules<br/>• Extracted from prompts<br/>• Coding standards<br/>• Architecture decisions<br/>• Applies to: all/team"]
+    subgraph Global["GLOBAL CONTEXT STORE"]
+        Repo["Repository Metadata<br/>───────────────<br/>• Structure & organization<br/>• Dependencies<br/>• Build commands<br/>• Test framework"]
+        Tasks["Task Registry<br/>───────────────<br/>• All active tasks<br/>• Status tracking<br/>• Dependency graph<br/>• Priority levels"]
+        Agents["Agent Registry<br/>───────────────<br/>• Agent availability<br/>• Current assignments<br/>• Token consumption<br/>• Performance metrics"]
+        Rules["Global Rules<br/>───────────────<br/>• Coding standards<br/>• Architecture decisions<br/>• User preferences<br/>• Constraints"]
     end
     
-    subgraph Agent1["👤 AGENT 1: Context Windows"]
-        W1_1["<b>Window 1: Recent</b><br/>Last 20 messages<br/>(Uncompressed)"]
-        
-        W2_1["<b>Window 2: Mid-term</b><br/>Compressed summaries<br/>Key decisions + actions"]
-        
-        W3_1["<b>Window 3: Historical</b><br/>High-level summaries<br/>Outcomes only"]
+    subgraph Agent1["AGENT CONTEXT: Backend-API-1"]
+        W1["Window 1: RECENT<br/>──────────────<br/>Last 20 messages<br/>Full detail preserved<br/>Direct access"]
+        W2["Window 2: MID-TERM<br/>──────────────<br/>Compressed summaries<br/>Key decisions retained<br/>Retrieved on demand"]
+        W3["Window 3: HISTORICAL<br/>──────────────<br/>High-level outcomes<br/>Major milestones only<br/>Archived"]
     end
     
-    subgraph Agent2["👤 AGENT 2: Context Windows"]
-        W1_2["<b>Window 1: Recent</b><br/>Last 20 messages<br/>(Uncompressed)"]
-        
-        W2_2["<b>Window 2: Mid-term</b><br/>Compressed summaries<br/>Key decisions + actions"]
-        
-        W3_2["<b>Window 3: Historical</b><br/>High-level summaries<br/>Outcomes only"]
+    subgraph Agent2["AGENT CONTEXT: React-1"]
+        W1_2["Window 1: RECENT<br/>──────────────<br/>Last 20 messages<br/>Full detail preserved<br/>Direct access"]
+        W2_2["Window 2: MID-TERM<br/>──────────────<br/>Compressed summaries<br/>Key decisions retained<br/>Retrieved on demand"]
+        W3_2["Window 3: HISTORICAL<br/>──────────────<br/>High-level outcomes<br/>Major milestones only<br/>Archived"]
     end
     
-    Algo["🔍 RETRIEVAL ALGORITHM<br/>━━━━━━━━━━━━━━━<br/>1. Agent checks Window 1 first<br/>2. If insufficient → expand to Window 2<br/>3. Still insufficient → check neighbor windows<br/>4. Critical need → retrieve historical<br/>━━━━━━━━━━━━━━━<br/>Neighbor: Related tasks, similar files"]
+    Retrieval["RETRIEVAL STRATEGY<br/>──────────────────<br/>1. Check Window 1 (recent)<br/>2. Expand to Window 2 if needed<br/>3. Check neighbor agent contexts<br/>4. Retrieve historical if critical<br/>──────────────────<br/>Neighbor = related tasks or files"]
     
-    Global -.->|Provides| Agent1
-    Global -.->|Provides| Agent2
-    Agent1 -.->|Can access| Agent2
-    Agent2 -.->|Can access| Agent1
+    Global -.-> Agent1
+    Global -.-> Agent2
+    Agent1 -.-> Agent2
+    Agent1 --> Retrieval
+    Agent2 --> Retrieval
     
-    Agent1 --> Algo
-    Agent2 --> Algo
-    
-    style Global fill:#E3F2FD,stroke:#1976D2,stroke-width:3px
-    style Agent1 fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
-    style Agent2 fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
-    style Algo fill:#FFF9C4,stroke:#F57C00,stroke-width:2px
+    classDef default stroke:#333,stroke-width:2px
 ```
+
+**Compression Strategy:**
+
+- **Window 1**: No compression, immediate access
+- **Window 2**: Compress every 10 messages into summary
+- **Window 3**: Compress every 20 summaries into milestone list
+- **Neighbor Access**: Related tasks share compressed contexts
 
 ---
 
-## 6. Git Workflow & Branch Strategy
+## 6. Git Workflow
+
+### 6.1 Branch-Per-Agent Strategy
+
+Parallel development with conflict prevention through branch isolation:
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'git0': '#333', 'git1': '#666', 'git2': '#999', 'gitBranchLabel0': '#fff', 'gitBranchLabel1': '#fff', 'gitBranchLabel2': '#fff', 'commitLabelColor': '#000', 'commitLabelBackground': '#fff'}}}%%
 gitGraph
-    commit id: "main: Initial state"
+    commit id: "Initial: Repository setup"
+    commit id: "feat: Core architecture"
+    
     branch agent/sd1/42-add-auth
     checkout agent/sd1/42-add-auth
-    commit id: "feat: Add user model"
-    commit id: "feat: Add JWT middleware"
-    commit id: "test: Add auth tests"
+    commit id: "feat: User model"
+    commit id: "feat: JWT middleware"
+    commit id: "test: Auth tests"
     
     checkout main
     branch agent/sd2/43-login-ui
     checkout agent/sd2/43-login-ui
-    commit id: "feat: Create login component"
-    commit id: "style: Add login styling"
+    commit id: "feat: Login component"
+    commit id: "style: Login UI"
     
     checkout main
     branch agent/sd3/44-e2e-tests
     checkout agent/sd3/44-e2e-tests
-    commit id: "test: Add E2E auth flow"
+    commit id: "test: E2E auth flow"
     
     checkout main
-    merge agent/sd1/42-add-auth tag: "PR #42: Merged by Architect"
+    merge agent/sd1/42-add-auth tag: "Merge: Architect approved"
     
     checkout main
-    merge agent/sd2/43-login-ui tag: "PR #43: Merged by Architect"
+    merge agent/sd2/43-login-ui tag: "Merge: Architect approved"
     
     checkout main
-    merge agent/sd3/44-e2e-tests tag: "PR #44: Merged by Architect"
+    merge agent/sd3/44-e2e-tests tag: "Merge: Architect approved"
     
-    commit id: "main: All features integrated"
+    commit id: "Release: v1.0.0"
 ```
 
-**Branch Protection Rules:**
-- ✅ `main` branch: Protected, only Architect can merge
-- ✅ `agent/*` branches: Specialists can push, managers can coordinate
-- ❌ No force-push to `main`
-- ✅ Auto-delete branches after merge
-- ✅ All PRs require CI/CD to pass
+**Branch Naming Convention:**
+```
+agent/<agent-id>/<issue-number>-<short-description>
+
+Examples:
+- agent/sd-backend-1/42-add-authentication
+- agent/sd-react-1/43-create-login-ui
+- agent/sd-testing-1/44-e2e-auth-tests
+```
+
+**Protection Rules:**
+- `main`: Architect-only merge access, no force-push
+- `agent/*`: Specialist can push, manager can coordinate
+- All merges require passing CI/CD checks
+- Branches auto-delete after successful merge
 
 ---
 
-## 7. Tool Ecosystem (23+ Tools by Tier)
+## 7. Tool Ecosystem
+
+### 7.1 Three-Tier Access Control
+
+Tools are organized by capability requirements and model sophistication:
 
 ```mermaid
 graph TB
-    subgraph Tier1["🟢 TIER 1: Basic Models (All Access)"]
-        T1_1["filesystem_read<br/>Read file contents"]
-        T1_2["filesystem_list<br/>List directories"]
-        T1_3["git_status<br/>Check git status"]
-        T1_4["git_log<br/>View commit history"]
-        T1_5["logging<br/>Write logs"]
+    subgraph Tier1["TIER 1: Basic Operations"]
+        T1_1["filesystem_read<br/>─────────────<br/>Read file contents<br/>with line ranges"]
+        T1_2["filesystem_list<br/>─────────────<br/>List directory<br/>contents"]
+        T1_3["git_status<br/>─────────────<br/>Check working<br/>directory status"]
+        T1_4["git_log<br/>─────────────<br/>View commit<br/>history"]
+        T1_5["logging<br/>─────────────<br/>Write structured<br/>logs"]
     end
     
-    subgraph Tier2["🟡 TIER 2: Medium+ Models"]
-        T2_1["filesystem_write<br/>Modify files"]
-        T2_2["git_operations<br/>Branch, commit, push"]
-        T2_3["grep_search<br/>Search patterns"]
-        T2_4["npm_commands<br/>Package manager"]
-        T2_5["test_runner<br/>Execute tests"]
-        T2_6["linting<br/>Code quality"]
-        T2_7["formatting<br/>Code formatting"]
+    subgraph Tier2["TIER 2: Development Operations"]
+        T2_1["filesystem_write<br/>─────────────<br/>Modify files with<br/>backup creation"]
+        T2_2["git_operations<br/>─────────────<br/>Branch, commit,<br/>push operations"]
+        T2_3["grep_search<br/>─────────────<br/>Pattern search<br/>in codebase"]
+        T2_4["npm_commands<br/>─────────────<br/>Package manager<br/>operations"]
+        T2_5["test_runner<br/>─────────────<br/>Execute test<br/>suites"]
+        T2_6["linting<br/>─────────────<br/>Code quality<br/>analysis"]
+        T2_7["formatting<br/>─────────────<br/>Code formatting<br/>enforcement"]
     end
     
-    subgraph Tier3["🔴 TIER 3: Advanced Models"]
-        T3_1["database_client<br/>DB operations"]
-        T3_2["api_testing<br/>HTTP requests"]
-        T3_3["code_execution<br/>Run code (sandboxed)"]
-        T3_4["migration_tools<br/>DB migrations"]
-        T3_5["docker_commands<br/>Containers"]
-        T3_6["security_scanners<br/>Vuln scanning"]
-        T3_7["performance_profiling<br/>Performance analysis"]
-        T3_8["github_api<br/>Issues, PRs, merge"]
+    subgraph Tier3["TIER 3: Advanced Operations"]
+        T3_1["database_client<br/>─────────────<br/>Database queries<br/>with safety checks"]
+        T3_2["api_testing<br/>─────────────<br/>HTTP request<br/>testing"]
+        T3_3["code_execution<br/>─────────────<br/>Sandboxed code<br/>execution"]
+        T3_4["migration_tools<br/>─────────────<br/>Database schema<br/>migrations"]
+        T3_5["docker_commands<br/>─────────────<br/>Container<br/>operations"]
+        T3_6["security_scanners<br/>─────────────<br/>Vulnerability<br/>detection"]
+        T3_7["performance_profiling<br/>─────────────<br/>Performance<br/>analysis"]
+        T3_8["github_api<br/>─────────────<br/>Issues, PRs,<br/>merge operations"]
     end
     
-    Models["🤖 MODEL TIERS<br/>━━━━━━━━━━━<br/>Tier 1: GPT-3.5, Gemini Flash, Llama 3 8B<br/>Tier 2: GPT-4-mini, Gemini Flash, Mistral<br/>Tier 3: GPT-4, Claude Sonnet, Gemini Pro<br/>Tier 4: GPT-4, Claude Opus (Architect only)"]
+    Models["MODEL TIER MAPPING<br/>────────────────────<br/>Tier 1 Models → Tier 1 Tools<br/>GPT-3.5, Gemini Flash, Llama 3 8B<br/>────────────────────<br/>Tier 2 Models → Tier 1 + 2 Tools<br/>GPT-4-mini, Gemini Flash, Mistral<br/>────────────────────<br/>Tier 3 Models → All Tools<br/>GPT-4, Claude Sonnet, Gemini Pro<br/>────────────────────<br/>Tier 4 Models → All Tools + Architecture<br/>GPT-4, Claude Opus (Architect only)"]
     
-    Sandbox["🔒 SANDBOX ENVIRONMENT<br/>━━━━━━━━━━━━━━━━<br/>• Isolated containers<br/>• No network access<br/>• CPU limit: 30s<br/>• Memory limit: 512MB<br/>• Temp filesystem only"]
+    Sandbox["SANDBOX ENVIRONMENT<br/>───────────────────<br/>Isolation: Containerized execution<br/>Network: No external access<br/>CPU: 30 second limit<br/>Memory: 512 MB limit<br/>Filesystem: Temporary only<br/>───────────────────<br/>Applies to: code_execution tool"]
     
-    Models -.->|Can use| Tier1
-    Models -.->|Tier 2+ can use| Tier2
-    Models -.->|Tier 3+ can use| Tier3
+    Models -.-> Tier1
+    Models -.-> Tier2
+    Models -.-> Tier3
+    Tier3 -.-> Sandbox
     
-    Tier3 --> Sandbox
-    
-    style Tier1 fill:#C8E6C9,stroke:#388E3C,stroke-width:2px
-    style Tier2 fill:#FFF9C4,stroke:#F57C00,stroke-width:2px
-    style Tier3 fill:#FFCDD2,stroke:#C62828,stroke-width:2px
-    style Models fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
-    style Sandbox fill:#ECEFF1,stroke:#455A64,stroke-width:2px
+    classDef default stroke:#333,stroke-width:2px
+```
+
+**Access Control Logic:**
+```
+if agent.model_tier >= tool.required_tier:
+    grant_access()
+else:
+    deny_with_suggestion_to_upgrade()
 ```
 
 ---
 
-## 8. Resource Management & Budget Strategies
+## 8. Resource Management
+
+### 8.1 Budget Allocation Strategies
+
+Four approaches for token budget management, selectable by user:
 
 ```mermaid
-graph TD
-    Budget["💰 GLOBAL TOKEN BUDGET<br/>━━━━━━━━━━━━━━<br/>Example: 1,000,000 tokens/day"]
+graph TB
+    Budget["GLOBAL TOKEN BUDGET<br/>──────────────────<br/>Example: 1,000,000 tokens/day<br/>──────────────────<br/>User configures allocation strategy"]
     
-    Strategy1["<b>Strategy 1: Fixed Per-Agent</b><br/>━━━━━━━━━━━━━━━━<br/>Architect: Unlimited<br/>Manager: 100k each<br/>Specialist: 50k each<br/>━━━━━━━━━━━━━━━━<br/>Pro: Predictable<br/>Con: Inflexible"]
+    S1["Strategy 1: FIXED PER-AGENT<br/>──────────────────────────<br/>Architect: Unlimited (critical path)<br/>Each Manager: 100,000 tokens<br/>Each Specialist: 50,000 tokens<br/>──────────────────────────<br/>Advantages:<br/>• Predictable costs<br/>• Simple to understand<br/>• Easy budget planning<br/>──────────────────────────<br/>Disadvantages:<br/>• Inflexible allocation<br/>• Idle agents waste budget<br/>• Cannot adapt to workload"]
     
-    Strategy2["<b>Strategy 2: Dynamic</b><br/>━━━━━━━━━━━━━━━━<br/>Track efficiency:<br/>tasks_completed / tokens_used<br/>━━━━━━━━━━━━━━━━<br/>High efficiency: +20% budget<br/>Low efficiency: -10% budget<br/>━━━━━━━━━━━━━━━━<br/>Pro: Self-optimizing<br/>Con: Complex"]
+    S2["Strategy 2: DYNAMIC REALLOCATION<br/>─────────────────────────────<br/>Base allocation: 50,000 per agent<br/>Track efficiency: tasks / tokens<br/>──────────────────────────<br/>Every 6 hours:<br/>High performers (+20% budget)<br/>Average performers (no change)<br/>Low performers (-10% budget)<br/>─────────────────────────────<br/>Advantages:<br/>• Rewards productivity<br/>• Self-optimizing<br/>• Maximizes output per token<br/>─────────────────────────────<br/>Disadvantages:<br/>• More complex logic<br/>• Can penalize struggling agents"]
     
-    Strategy3["<b>Strategy 3: Priority-Based</b><br/>━━━━━━━━━━━━━━━━<br/>Critical: 100k tokens<br/>High: 50k tokens<br/>Normal: 30k tokens<br/>Low: 15k tokens<br/>━━━━━━━━━━━━━━━━<br/>Pro: Business-aligned<br/>Con: Hard to predict"]
+    S3["Strategy 3: PRIORITY-BASED<br/>──────────────────────────<br/>Budget allocated per task:<br/>Critical priority: 100,000 tokens<br/>High priority: 50,000 tokens<br/>Normal priority: 30,000 tokens<br/>Low priority: 15,000 tokens<br/>──────────────────────────<br/>Advantages:<br/>• Aligned with business value<br/>• Critical work never blocked<br/>• Clear prioritization<br/>──────────────────────────<br/>Disadvantages:<br/>• Hard to predict total cost<br/>• Requires careful priority setting"]
     
-    Strategy4["<b>Strategy 4: Adaptive Pool</b><br/>━━━━━━━━━━━━━━━━<br/>Shared pool, draw as needed<br/>━━━━━━━━━━━━━━━━<br/>80% used: Prioritize high-value<br/>90% used: Critical only<br/>100% used: Pause all<br/>━━━━━━━━━━━━━━━━<br/>Pro: Max flexibility<br/>Con: Unpredictable"]
+    S4["Strategy 4: ADAPTIVE POOL<br/>─────────────────────────<br/>Shared pool, agents draw as needed<br/>No per-agent limits<br/>─────────────────────────<br/>Pool level responses:<br/>80% consumed: Prioritize high-value<br/>90% consumed: Critical tasks only<br/>100% consumed: Pause all work<br/>─────────────────────────<br/>Advantages:<br/>• Maximum flexibility<br/>• No artificial constraints<br/>• Natural prioritization<br/>─────────────────────────<br/>Disadvantages:<br/>• Unpredictable consumption<br/>• Risk of early exhaustion"]
     
-    Monitoring["📊 MONITORING & OPTIMIZATION<br/>━━━━━━━━━━━━━━━━━━━<br/>Track per agent:<br/>• Tokens consumed<br/>• Tasks completed<br/>• Efficiency score<br/>• Cost ($)<br/>━━━━━━━━━━━━━━━━━━━<br/>Generate recommendations:<br/>• Downgrade models for simple tasks<br/>• Upgrade models for stuck agents<br/>• Reallocate budget to high performers"]
+    Monitor["MONITORING & OPTIMIZATION<br/>───────────────────────────<br/>Tracked Metrics:<br/>• Tokens consumed per agent<br/>• Tasks completed per agent<br/>• Efficiency ratio (tasks/tokens)<br/>• Cost per task ($)<br/>• Time per task<br/>───────────────────────────<br/>Automated Recommendations:<br/>• Downgrade models for simple tasks<br/>• Upgrade models for struggling agents<br/>• Reallocate budget to high performers<br/>• Identify inefficient task types"]
     
-    Budget --> Strategy1
-    Budget --> Strategy2
-    Budget --> Strategy3
-    Budget --> Strategy4
+    Budget --> S1
+    Budget --> S2
+    Budget --> S3
+    Budget --> S4
+    S1 --> Monitor
+    S2 --> Monitor
+    S3 --> Monitor
+    S4 --> Monitor
     
-    Strategy1 --> Monitoring
-    Strategy2 --> Monitoring
-    Strategy3 --> Monitoring
-    Strategy4 --> Monitoring
-    
-    style Budget fill:#FFF9C4,stroke:#F57C00,stroke-width:3px
-    style Strategy1 fill:#BBDEFB,stroke:#1976D2,stroke-width:2px
-    style Strategy2 fill:#C8E6C9,stroke:#388E3C,stroke-width:2px
-    style Strategy3 fill:#F8BBD0,stroke:#C2185B,stroke-width:2px
-    style Strategy4 fill:#CE93D8,stroke:#7B1FA2,stroke-width:2px
-    style Monitoring fill:#FFE082,stroke:#F57C00,stroke-width:2px
+    classDef default stroke:#333,stroke-width:2px
 ```
+
+**Selection Criteria:**
+- **Fixed**: Predictable costs, simple projects
+- **Dynamic**: Long-running projects, performance matters
+- **Priority**: Business-critical work, clear priorities
+- **Adaptive**: Experimental projects, uncertain workload
 
 ---
 
 ## 9. Security Architecture
 
+### 9.1 Defense in Depth
+
+Security implemented across four layers with multiple controls:
+
 ```mermaid
 graph TB
-    subgraph Input["🔐 INPUT SECURITY"]
-        PromptValidation["Prompt Injection Detection<br/>━━━━━━━━━━━━━━<br/>Flags: 'Ignore previous'<br/>'You are now...'<br/>'Print system prompt'"]
+    subgraph Input["INPUT VALIDATION LAYER"]
+        I1["Prompt Injection Detection<br/>──────────────────────<br/>Flags patterns:<br/>• 'Ignore previous instructions'<br/>• 'You are now...'<br/>• 'Print your system prompt'<br/>• 'Disregard all...'<br/>──────────────────────<br/>Action: Warn user, require confirmation"]
         
-        ParamValidation["Parameter Validation<br/>━━━━━━━━━━━━━━<br/>• Type checking<br/>• Range validation<br/>• Path sanitization<br/>• No ../../ escapes"]
+        I2["Parameter Validation<br/>──────────────────────<br/>Checks:<br/>• Type correctness<br/>• Range boundaries<br/>• Path sanitization<br/>• No directory traversal (../../)<br/>──────────────────────<br/>Action: Reject invalid parameters"]
         
-        CommandInjection["Command Injection Prevention<br/>━━━━━━━━━━━━━━<br/>• Parameterized execution<br/>• No string concatenation<br/>• Block: ; | & $ backticks"]
+        I3["Command Injection Prevention<br/>────────────────────────────<br/>Enforcement:<br/>• Parameterized execution only<br/>• No string concatenation<br/>• Block shell metacharacters<br/>• Whitelist allowed commands<br/>────────────────────────────<br/>Action: Sanitize or reject"]
     end
     
-    subgraph Execution["⚡ EXECUTION SECURITY"]
-        Sandbox["Code Execution Sandbox<br/>━━━━━━━━━━━━━━<br/>• Isolated containers<br/>• No network access<br/>• CPU: 30s limit<br/>• Memory: 512MB limit<br/>• Temp filesystem only"]
+    subgraph Execution["EXECUTION ISOLATION LAYER"]
+        E1["Code Execution Sandbox<br/>────────────────────<br/>Isolation:<br/>• Containerized environment<br/>• No network access<br/>• CPU time limit: 30s<br/>• Memory limit: 512 MB<br/>• Temporary filesystem only<br/>────────────────────<br/>Action: Terminate if violated"]
         
-        ToolGating["Tool Permission Gating<br/>━━━━━━━━━━━━━━<br/>• Tier-based access<br/>• Low-tier models restricted<br/>• Dangerous tools need Tier 3<br/>• Temporary escalation logged"]
+        E2["Tool Permission Gating<br/>──────────────────────<br/>Control:<br/>• Tier-based access matrix<br/>• Low-tier models restricted<br/>• Dangerous tools need Tier 3<br/>• Temporary escalation logged<br/>──────────────────────<br/>Action: Deny or grant with logging"]
     end
     
-    subgraph Data["🗄️ DATA SECURITY"]
-        SecretDetection["Secret Detection<br/>━━━━━━━━━━━━━━<br/>Pre-commit scanning:<br/>• API keys<br/>• Private keys<br/>• Passwords<br/>• Connection strings<br/>• JWT secrets<br/>━━━━━━━━━━━━━━<br/>Block commit if detected"]
+    subgraph Data["DATA PROTECTION LAYER"]
+        D1["Secret Detection<br/>────────────────<br/>Pre-commit scan for:<br/>• API keys (long alphanumeric)<br/>• Private keys (BEGIN markers)<br/>• Passwords (password=, pwd=)<br/>• Connection strings<br/>• JWT secrets<br/>────────────────<br/>Action: Block commit, alert specialist"]
         
-        FilePermissions["File-Level Permissions<br/>━━━━━━━━━━━━━━<br/>Sensitive files:<br/>• .env → Read-only<br/>• secrets/* → Blocked<br/>• src/auth/* → Security review<br/>• migrations/* → Specialist only"]
+        D2["File-Level Permissions<br/>──────────────────────<br/>Sensitive files:<br/>• .env files → Read-only<br/>• secrets/* → Blocked entirely<br/>• src/auth/* → Security review required<br/>• migrations/* → Specialist approval needed<br/>──────────────────────<br/>Action: Enforce access rules"]
         
-        APIKeys["API Key Management<br/>━━━━━━━━━━━━━━<br/>• Environment variables<br/>• Never in config files<br/>• Rotation support<br/>• Validation on startup"]
+        D3["API Key Management<br/>──────────────────<br/>Best practices:<br/>• Environment variables only<br/>• Never in config files<br/>• Rotation support<br/>• Validation on startup<br/>• Revocation on exposure<br/>──────────────────<br/>Action: Secure storage, validation"]
     end
     
-    subgraph Access["🚪 ACCESS CONTROL"]
-        BranchProtection["Branch Protection<br/>━━━━━━━━━━━━━━<br/>• main: Architect only<br/>• No force-push<br/>• PR required<br/>• CI/CD must pass"]
+    subgraph Access["ACCESS CONTROL LAYER"]
+        A1["Branch Protection<br/>────────────────<br/>Rules:<br/>• main: Architect only<br/>• No force-push to main<br/>• PR required for all merges<br/>• CI/CD must pass<br/>• Minimum 1 reviewer<br/>────────────────<br/>Action: Enforce via GitHub settings"]
         
-        AuditLog["Audit Trail<br/>━━━━━━━━━━━━━━<br/>• All actions logged<br/>• Immutable append-only<br/>• Cryptographic signatures<br/>• Export for compliance"]
+        A2["Audit Trail<br/>────────────<br/>Logging:<br/>• All actions logged<br/>• Immutable append-only<br/>• Cryptographic signatures<br/>• Tamper detection<br/>• Export for compliance<br/>────────────<br/>Action: Persistent logging"]
     end
     
     Input --> Execution
     Execution --> Data
     Data --> Access
     
-    style Input fill:#FFEBEE,stroke:#C62828,stroke-width:2px
-    style Execution fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
-    style Data fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
-    style Access fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    classDef default stroke:#333,stroke-width:2px
 ```
+
+**Security Principles:**
+1. **Defense in Depth**: Multiple independent security layers
+2. **Least Privilege**: Minimum necessary permissions
+3. **Fail Secure**: Deny by default, grant explicitly
+4. **Audit Everything**: Complete action trail for forensics
 
 ---
 
-## 10. Verification Pipeline (5 Stages)
+## 10. Verification Pipeline
+
+### 10.1 Five-Stage Quality Gate
+
+Progressive verification ensures correctness before integration:
 
 ```mermaid
-graph LR
-    Stage1["<b>STAGE 1</b><br/>Agent Self-Check<br/>━━━━━━━━━<br/>• Syntax validation<br/>• Run tests locally<br/>• Lint check<br/>• Format code<br/>• Review acceptance criteria<br/>━━━━━━━━━<br/>Before raising PR"]
+flowchart LR
+    Start([Code<br/>Complete]) --> S1
     
-    Stage2["<b>STAGE 2</b><br/>Automated CI/CD<br/>━━━━━━━━━<br/>• Build verification<br/>• All test suites<br/>• Code coverage >80%<br/>• Security scan<br/>• License check<br/>━━━━━━━━━<br/>Blocks PR if fails"]
+    S1["STAGE 1<br/>Agent Self-Check<br/>─────────────<br/>• Syntax validation<br/>• Local test execution<br/>• Lint verification<br/>• Code formatting<br/>• Acceptance criteria review<br/>─────────────<br/>Gate: Before PR creation"]
     
-    Stage3["<b>STAGE 3</b><br/>Reviewer Agent<br/>━━━━━━━━━<br/>• Code smells<br/>• Pattern consistency<br/>• Documentation<br/>• Test quality<br/>• Performance implications<br/>━━━━━━━━━<br/>Creates improvement issues<br/>(Non-blocking)"]
+    S2["STAGE 2<br/>Automated CI/CD<br/>─────────────<br/>• Build verification<br/>• Full test suite<br/>• Code coverage >80%<br/>• Security scanning<br/>• License compliance<br/>─────────────<br/>Gate: Blocks PR merge"]
     
-    Stage4["<b>STAGE 4</b><br/>Manager Review<br/>━━━━━━━━━<br/>• Validates acceptance<br/>• Checks for conflicts<br/>• Ensures merge safety<br/>• Coordinates resolution<br/>━━━━━━━━━<br/>Approves for architect"]
+    S3["STAGE 3<br/>Reviewer Agent<br/>─────────────<br/>• Code smell detection<br/>• Pattern consistency<br/>• Documentation check<br/>• Test adequacy<br/>• Performance review<br/>─────────────<br/>Gate: Creates issues (non-blocking)"]
     
-    Stage5["<b>STAGE 5</b><br/>Architect Gate<br/>━━━━━━━━━<br/>• Reviews against intent<br/>• Validates global rules<br/>• Architecture fit<br/>• Quality gate<br/>━━━━━━━━━<br/>Final merge decision"]
+    S4["STAGE 4<br/>Manager Review<br/>─────────────<br/>• Acceptance validation<br/>• Conflict detection<br/>• Merge safety check<br/>• Team coordination<br/>─────────────<br/>Gate: Approves for architect"]
     
-    Success["✅ MERGED TO MAIN<br/>━━━━━━━━━<br/>• Context updated<br/>• Metrics logged<br/>• User notified<br/>• Branch deleted"]
+    S5["STAGE 5<br/>Architect Review<br/>─────────────<br/>• Intent alignment<br/>• Global rules compliance<br/>• Architecture fit<br/>• Quality assessment<br/>─────────────<br/>Gate: Final merge decision"]
     
-    Stage1 --> Stage2
-    Stage2 --> Stage3
-    Stage3 --> Stage4
-    Stage4 --> Stage5
-    Stage5 --> Success
+    Success([Merged to<br/>Main Branch])
     
-    Stage1 -.->|Fails| Stage1
-    Stage2 -.->|Fails| Fix["🔧 Fix Required<br/>Specialist fixes<br/>and re-submits"]
-    Stage4 -.->|Conflicts| Resolve["🔀 Resolve Conflicts<br/>Manager coordinates<br/>resolution"]
-    Stage5 -.->|Changes Needed| Stage1
+    S1 --> S2
+    S2 --> S3
+    S3 --> S4
+    S4 --> S5
+    S5 --> Success
     
-    Fix -.-> Stage1
-    Resolve -.-> Stage4
+    S1 -.->|Fails| Fix1[Fix & Retry]
+    S2 -.->|Fails| Fix2[Fix & Retry]
+    S4 -.->|Conflicts| Resolve[Coordinate<br/>Resolution]
+    S5 -.->|Rejected| Redesign[Redesign<br/>Approach]
     
-    style Stage1 fill:#C8E6C9,stroke:#388E3C,stroke-width:2px
-    style Stage2 fill:#BBDEFB,stroke:#1976D2,stroke-width:2px
-    style Stage3 fill:#F8BBD0,stroke:#C2185B,stroke-width:2px
-    style Stage4 fill:#CE93D8,stroke:#7B1FA2,stroke-width:2px
-    style Stage5 fill:#FFE082,stroke:#F57C00,stroke-width:2px
-    style Success fill:#A5D6A7,stroke:#388E3C,stroke-width:3px
-    style Fix fill:#FFCDD2,stroke:#C62828,stroke-width:2px
-    style Resolve fill:#FFF9C4,stroke:#F57C00,stroke-width:2px
+    Fix1 -.-> S1
+    Fix2 -.-> S2
+    Resolve -.-> S4
+    Redesign -.-> S1
+    
+    classDef default stroke:#333,stroke-width:2px
 ```
 
----
+**Verification Criteria:**
 
-## Legend
+| Stage | Blocking | Retry Allowed | Typical Duration |
+|-------|----------|---------------|------------------|
+| 1. Self-Check | Yes | Unlimited | 2-5 minutes |
+| 2. CI/CD | Yes | Unlimited | 5-10 minutes |
+| 3. Code Review | No | N/A | 1-2 minutes |
+| 4. Manager | Yes | Limited (2x) | 1-3 minutes |
+| 5. Architect | Yes | Limited (1x) | 2-5 minutes |
 
-### Color Coding
-- 🔵 **Blue**: User Interface Layer
-- 🟠 **Orange**: Architect (Orchestration)
-- 🟣 **Purple**: Managers (Coordination)
-- 🟢 **Green**: Specialists (Execution) & Success states
-- ⚫ **Gray**: Infrastructure Layer
-- 🔴 **Red**: Errors & Security
-- 🟡 **Yellow**: Warnings & Recovery
-
-### Model Tiers
-- **Tier 1**: Basic (GPT-3.5, Gemini Flash, Llama 3 8B) - Read-only tools
-- **Tier 2**: Medium (GPT-4-mini, Gemini Flash, Mistral) - Write + Test tools
-- **Tier 3**: Advanced (GPT-4, Claude Sonnet, Gemini Pro) - Database + Security tools
-- **Tier 4**: Expert (GPT-4, Claude Opus) - All tools + Architecture (Architect only)
-
-### Key Statistics
-- **1** Architect Agent (Tier 4)
-- **3** Manager Agents (Backend, Frontend, DevOps)
-- **10+** Specialist Types
-- **23+** Tools across 3 tiers
-- **5** Verification stages
-- **3** Error recovery levels
-- **4** Budget allocation strategies
+**Quality Metrics Tracked:**
+- Test pass rate (target: 100%)
+- Code coverage (target: >80%)
+- Security vulnerabilities (target: 0 critical)
+- Linting errors (target: 0)
+- Average time to merge (optimization metric)
 
 ---
 
-## 🏆 Hackathon Focus Areas
+## System Statistics
 
-✅ **Correctness**: 5-stage verification pipeline ensures code quality  
-✅ **Orchestration**: 3-tier hierarchy with intelligent task routing  
-✅ **Recovery**: 3-level error handling (Self → Manager → Architect → Human)  
-✅ **Efficiency**: Dynamic budget allocation, context compression, tool tier optimization  
-✅ **Autonomy**: Minimal human intervention, self-recovering agents, automated workflows  
+| Component | Count | Description |
+|-----------|-------|-------------|
+| **Agents** |
+| Architect | 1 | Tier 4 model (GPT-4, Claude Opus) |
+| Managers | 3 | Backend, Frontend, DevOps teams |
+| Specialists | 10+ | Configurable based on budget and needs |
+| **Tools** |
+| Tier 1 | 5 | Basic read operations |
+| Tier 2 | 7 | Development operations |
+| Tier 3 | 8 | Advanced operations |
+| **Architecture** |
+| Layers | 5 | UI, Orchestration, Coordination, Execution, Infrastructure |
+| Verification Stages | 5 | Progressive quality gates |
+| Error Recovery Levels | 4 | Graduated escalation hierarchy |
+| Budget Strategies | 4 | Selectable allocation approaches |
 
 ---
 
-**Design Document**: 5,294 lines | **Created**: September 2026 | **Version**: 1.0  
-**Ready for Implementation** 🚀
+## Key Design Principles
+
+1. **Hierarchical Orchestration**: Clear separation of strategic (Architect), tactical (Manager), and operational (Specialist) responsibilities
+
+2. **Graduated Recovery**: Error handling progresses from autonomous to human-involved, minimizing unnecessary escalation
+
+3. **Evidence-Based Assignment**: Multi-factor algorithm considers expertise, availability, load, and capability for optimal task routing
+
+4. **Progressive Verification**: Five-stage pipeline ensures correctness without unnecessary overhead
+
+5. **Secure by Default**: Defense-in-depth security with input validation, execution isolation, data protection, and access control
+
+6. **Resource Efficiency**: Multiple budget strategies with monitoring and optimization recommendations
+
+7. **Context Efficiency**: Time-windowed compression balances detail retention with memory constraints
+
+8. **Branch Isolation**: Parallel development without conflicts through branch-per-agent strategy
+
+---
+
+## Hackathon Alignment
+
+**Correctness**: Five-stage verification pipeline with automated testing, code review, and multiple approval gates
+
+**Orchestration**: Three-tier hierarchy (Architect → Managers → Specialists) with intelligent task routing
+
+**Recovery**: Four-level error handling with self-recovery, manager intervention, architect escalation, and human fallback
+
+**Efficiency**: Dynamic budget allocation, context compression, tool tier optimization, and performance monitoring
+
+**Autonomy**: Minimal human intervention required, self-recovering agents, automated workflows, and progressive verification
+
+---
+
+**Document Version**: 1.0  
+**Created**: September 2026  
+**Repository**: https://github.com/MRiARC/ai-coding-harness  
+**Design Specification**: See [DESIGN_SPEC.md](DESIGN_SPEC.md) for complete 5,294-line implementation details
