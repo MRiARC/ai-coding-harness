@@ -207,6 +207,10 @@ func proxyRequest(w http.ResponseWriter, request *http.Request, target string, b
 	proxied := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
 		pr.SetURL(upstream)
 		pr.Out.Host = upstream.Host
+		// SetURL JOINS the incoming path onto the target path (ReverseProxy
+		// footgun): overwrite with the exact target path (live-run finding).
+		pr.Out.URL.Path = upstream.Path
+		pr.Out.URL.RawPath = ""
 	}}
 	if body == nil {
 		// plain proxy: stream the upstream response straight through
@@ -219,6 +223,8 @@ func proxyRequest(w http.ResponseWriter, request *http.Request, target string, b
 	proxied.Rewrite = func(pr *httputil.ProxyRequest) {
 		pr.SetURL(upstream)
 		pr.Out.Host = upstream.Host
+		pr.Out.URL.Path = upstream.Path
+		pr.Out.URL.RawPath = ""
 		pr.Out.Method = http.MethodPost
 		pr.Out.ContentLength = int64(len(encoded))
 		pr.Out.Body = io.NopCloser(bytes.NewReader(encoded))

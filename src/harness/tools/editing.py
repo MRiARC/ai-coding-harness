@@ -222,7 +222,7 @@ class ApplyEditTool(Tool):
     def _backup(self, target: Path, original: str) -> None:
         backup_dir = self._root / ".harness" / "backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = target.relative_to(self._root).name
+        safe_name = target.relative_to(self._root.resolve()).name
         (backup_dir / f"{safe_name}.bak").write_text(original, encoding="utf-8")
 
 

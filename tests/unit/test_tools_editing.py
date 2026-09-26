@@ -92,3 +92,19 @@ def test_syntax_check(repo) -> None:
     assert any("broken.py" in e for e in bad.data["errors"])
     assert any("bad.json" in e for e in bad.data["errors"])
     assert tool.check_permissions({"model_tier": 1}) is False
+
+
+def test_apply_edit_survives_symlinked_repo_root(tmp_path: Path) -> None:
+    """macOS /tmp is a symlink (/tmp -> /private/tmp): resolved targets vs
+    unresolved roots must not break relative_to (live gateway-run finding)."""
+    real = tmp_path / "real-repo"
+    real.mkdir()
+    (real / "calc.py").write_text("def add(a, b):\n    return a - b\n")
+    link = tmp_path / "link-repo"
+    link.symlink_to(real)
+
+    tool = ApplyEditTool(link)  # root passed through the symlink path
+    result = tool.execute(path="calc.py", search="return a - b",
+                          replace="return a + b")
+    assert result.success, result.error
+    assert "return a + b" in (real / "calc.py").read_text()

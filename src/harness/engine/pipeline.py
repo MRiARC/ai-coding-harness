@@ -80,7 +80,7 @@ class HarnessPipeline:
         audit: AuditLog | None = None,
         event_sink: Any = None,
     ) -> None:
-        self._repo_root = Path(repo_root)
+        self._repo_root = Path(repo_root).resolve()  # canonical: macOS /tmp symlinks
         self._config = config
         self._store = store
         self._audit = audit or AuditLog(self._repo_root / ".harness" / "audit.jsonl")
