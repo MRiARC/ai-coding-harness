@@ -1,95 +1,63 @@
-# AI Coding Harness - Complete Context for AI Tools
+# AI Context — Read This First
 
-## Project Overview
-This is an autonomous coding agent harness for the LCC x DevClub Hackathon. It uses a hierarchical multi-agent system (Architect → Managers → Specialists) to autonomously complete software engineering tasks.
+**Project:** LCC x DevClub AI Coding Harness ("Foreman") — an autonomous
+coding-agent harness for the hackathon's evaluation.
 
-## Key Files to Read
-1. **README.md** - Architecture diagrams and visual overview
-2. **DESIGN_SPEC.md** - Complete 5,294-line design specification
-3. **TECHNICAL_IMPLEMENTATION.md** - Technology stack and implementation guide
-4. **IMPLEMENTATION_GUIDE.md** - Task breakdown for all GitHub issues
+## Source of truth (in order)
 
-## Technology Stack
-- **API Server**: Go 1.21+
-- **Agent System**: Python 3.11+ with LangGraph
-- **Database**: PostgreSQL 15+
-- **Cache**: Redis 7+
-- **Frontend**: React 18 + Vite
+1. **`docs/specs/foreman-eval-mode-design.md`** — the approved design. The
+   runtime architecture, evaluation contract, and build order live here.
+2. **The code in `src/harness/`** — if code and an older document disagree,
+   the code wins and the document is stale.
+3. **GitHub issues** — the current work plan (Milestones 1–4).
 
-## Architecture Summary
+## What this project IS
+
+A single-process Python harness (3.11+) that turns **one prescribed model**
+(supplied by the organizers via `AI_API_KEY` at eval time) into a software
+engineer on a target repository + issue:
+
 ```
-Frontend (React) 
-    ↓ HTTP/WebSocket
-API Gateway (Go:8080)
-    ↓ HTTP REST
-Agent Orchestrator (Python:8000)
-    ↓
-PostgreSQL + Redis + GitHub API
+issue text → Architect (plan) → Manager (routing, overlap gate, budget,
+recovery) → Locator/Implementer/Verifier loops over ~12 tools →
+verification pipeline → evidence pack (patch, trace.jsonl, test report,
+baseline, token report, summary)
 ```
 
-## Quick Start for AI Assistants
+- Interface contract: `export AI_API_KEY=… && make setup && make run`
+  (issue supplied as text: `--issue`, `--issue-file`, env var, or stdin).
+- Offline-first: no GitHub credentials, no network beyond the model API,
+  SQLite context store, fake provider for offline tests.
+- Exit codes: 0 verified · 1 unverified changes · 2 failed · 3 budget exhausted.
 
-When helping implement this project:
+## What this project is NOT (legacy vision docs — do not implement against)
 
-1. **Read the specifications first**: Check README.md, DESIGN_SPEC.md, and TECHNICAL_IMPLEMENTATION.md
-2. **Follow the tech stack**: Use Go for API, Python+LangGraph for agents
-3. **Check GitHub issues**: 41 issues (#1-41) break down all tasks
-4. **Follow patterns**: Code examples are in TECHNICAL_IMPLEMENTATION.md
-5. **Maintain architecture**: Keep the 3-tier agent hierarchy (Architect → Managers → Specialists)
+`DESIGN_SPEC.md` and `TECHNICAL_IMPLEMENTATION.md` describe the original
+**long-term vision**: a multi-service platform (Go API gateway, Python
+LangGraph service, React dashboard, PostgreSQL, Redis, GitHub PR flows).
+Those runtime assumptions were **superseded** by the Foreman design — the
+evaluation environment has none of that infrastructure. Read them for
+concepts (verification stages, escalation levels, assignment weights) that
+survived, never as build instructions. Same for the old issue backlog
+(#4–#41 sub-issues that mention Go/React/specialist zoos).
 
-## Key Implementation Points
+## Key modules
 
-### Agent System (Python)
-- Use LangGraph for agent workflows
-- Architect decomposes tasks
-- Managers assign using multi-factor algorithm
-- Specialists execute 11-step workflow
+| Path | Role |
+|---|---|
+| `src/harness/agents/` | LLMAgent loop, Architect (plan/review), Manager (routing/overlap/recovery), role presets |
+| `src/harness/engine/` | Pipeline orchestration, budget governor, recovery ladder, evidence packs |
+| `src/harness/tools/` | 12-tool registry (read/search/edit/test/git/execution/scan) |
+| `src/harness/verification/` | Integrity gate, syntax check, baseline + regression judgment, AST smells, secret scan |
+| `src/harness/infrastructure/` | Model providers (openai/anthropic/google/openai-compatible/fake), context store, git, GitHub (optional) |
+| `src/harness/monitoring/` | Metrics + health checks |
+| `src/harness/security/` | Input guards, secret scanner, hash-chained audit log |
 
-### API Server (Go)
-- HTTP server with WebSocket support
-- Proxy requests to Python agent service
-- Manage database and Redis connections
+## Conventions
 
-### Database Schema
-- 8 main tables: repositories, tasks, agents, agent_contexts, global_rules, token_usage, metrics, audit_logs
-- Use PostgreSQL with JSONB for flexibility
-
-### Communication
-- Go ↔ Python: HTTP REST
-- Real-time updates: WebSocket
-- Async events: Redis Pub/Sub
-
-## GitHub Issues Structure
-- Issue #1: Foundation (8 sub-issues: #4-11) - Both team members
-- Issue #2: Agents (13 sub-issues: #12-24) - Team Member 1
-- Issue #3: Verification/Security/UI (17 sub-issues: #25-41) - Team Member 2
-
-## Important Design Decisions
-1. **Go over Rust**: Faster development, good enough performance
-2. **LangGraph**: Perfect for agent state management
-3. **PostgreSQL**: JSONB support for flexible context storage
-4. **Branch-per-agent**: Prevents merge conflicts during development
-5. **Multi-factor assignment**: 40% specialty, 20% availability, 20% load, 20% capability
-
-## Development Workflow
-```bash
-# Start infrastructure
-docker-compose up -d postgres redis
-
-# Start Go API server
-cd api-server && go run cmd/server/main.go
-
-# Start Python agent service
-cd agent-service && uvicorn main:app --reload
-
-# Start frontend
-cd frontend && npm run dev
-```
-
-## Testing
-- Go: `go test ./...`
-- Python: `pytest tests/`
-- Integration: `./scripts/e2e-test.sh`
-
-## For More Details
-Refer to the complete documentation files in the repository.
+- Tests: pytest with **enforced 100% statement coverage** (`fail_under=100`),
+  strict mypy, ruff. CI runs Python 3.11 and 3.12 — local green is not enough.
+- Credentials only ever enter via environment variables (`api_key_env`
+  indirection); never commit keys or write them into config files.
+- Git: PRs target `main` directly (no stacked feature-branch bases); one
+  commit per sub-issue keeps review history readable.

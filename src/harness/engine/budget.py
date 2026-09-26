@@ -59,6 +59,19 @@ class BudgetGovernor:
             msg = f"token budget exhausted: {self.used_tokens()} >= {self._budget.total_tokens}"
             raise BudgetExhausted(msg)
 
+    def reserve(self, prompt_estimate: int, completion_reserve: int = 1024) -> None:
+        """Refuse a dispatch whose predicted cost would overshoot the cap.
+
+        `check()` alone lets the final call burn past the limit because usage
+        is recorded only after completion; reserving the estimated prompt
+        plus a completion floor before dispatch closes that overshoot
+        (audit §13).
+        """
+        projected = self.used_tokens() + max(0, prompt_estimate) + completion_reserve
+        if projected > self._budget.total_tokens:
+            msg = f"token budget exhausted: projected {projected} >= {self._budget.total_tokens}"
+            raise BudgetExhausted(msg)
+
     def record(self, agent_id: str, model: str, prompt_tokens: int, completion_tokens: int) -> None:
         """Append one model call to the ledger."""
         self._store.record_token_usage(

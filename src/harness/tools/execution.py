@@ -9,6 +9,7 @@ for the spec's Docker sandbox (no containers in the evaluation environment).
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 import subprocess
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.security.input_guard import sanitize_path, validate_command
-from harness.tools.base import Tool, ToolResult, ToolTier
+from harness.tools.base import AsyncExecutableTool, Tool, ToolResult, ToolTier
 
 MAX_OUTPUT_BYTES = 20_000
 DEFAULT_TIMEOUT = 60.0
@@ -45,11 +46,17 @@ def _limits_preexec() -> None:  # pragma: no cover - runs in child process
 
 def detect_test_runner(repo_root: Path) -> tuple[str, list[str]]:
     """Detect (name, command) for the repository's test runner."""
-    if (
+    has_pytest_config = (
         (repo_root / "pyproject.toml").exists()
         or (repo_root / "pytest.ini").exists()
         or (repo_root / "setup.cfg").exists()
-    ):
+    )
+    has_bare_tests = any(
+        path.name.startswith("test_") or path.name.endswith("_test.py")
+        for path in repo_root.rglob("*.py")
+        if ".venv" not in path.parts and "__pycache__" not in path.parts
+    )
+    if has_pytest_config or has_bare_tests:
         return "pytest", [sys.executable, "-m", "pytest", "-q", "--no-header"]
     if (repo_root / "package.json").exists():
         return "npm", ["npm", "test", "--silent"]
@@ -58,7 +65,7 @@ def detect_test_runner(repo_root: Path) -> tuple[str, list[str]]:
     return "none", []
 
 
-class RunTestsTool(Tool):
+class RunTestsTool(AsyncExecutableTool):
     """test_runner: run the detected test suite (or an explicit path subset)."""
 
     name, tier = "run_tests", ToolTier.DEVELOPMENT
@@ -115,8 +122,46 @@ class RunTestsTool(Tool):
             data={"framework": name, "exit_code": proc.returncode},
         )
 
+    async def execute_async(self, path: str | None = None, **_: Any) -> ToolResult:
+        """Awaitable variant: subprocess without blocking the event loop."""
+        name, command = detect_test_runner(self._root)
+        if name == "none":
+            return ToolResult(
+                success=False, error="no test runner detected (looked for pytest/npm/make)"
+            )
+        argv = list(command)
+        if path and name == "pytest":
+            argv.append(path)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=self._root,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+        except OSError as exc:
+            return ToolResult(success=False, error=f"cannot spawn test runner: {exc}")
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), self._timeout)
+        except TimeoutError:
+            proc.kill()
+            return ToolResult(
+                success=False,
+                error=f"test run exceeded {self._timeout}s timeout",
+                data={"framework": name},
+            )
+        output = _trunc(f"{stdout.decode()}\n{stderr.decode()}".strip())
+        passed = proc.returncode == 0
+        return ToolResult(
+            success=passed,
+            output=output,
+            error=None if passed else f"tests failed (exit {proc.returncode})",
+            data={"framework": name, "exit_code": proc.returncode},
+        )
 
-class CodeExecutionTool(Tool):
+
+class CodeExecutionTool(AsyncExecutableTool):
     """code_execution: sandboxed command execution (Tier 3).
 
     No shell, whitelisted argv[0], project-dir confinement, 30s CPU limit,
@@ -194,6 +239,43 @@ class CodeExecutionTool(Tool):
                 success=False, error=f"command exceeded {self._timeout}s sandbox timeout"
             )
         output = _trunc(f"{proc.stdout}\n{proc.stderr}".strip())
+        return ToolResult(
+            success=proc.returncode == 0,
+            output=output,
+            error=None if proc.returncode == 0 else f"exit {proc.returncode}",
+            data={"exit_code": proc.returncode, "confined_to": str(self._root)},
+        )
+
+    async def execute_async(self, command: list[str], **_: Any) -> ToolResult:
+        """Awaitable variant: sandboxed subprocess without blocking the loop."""
+        argv = list(command)
+        if argv and argv[0] in ("python", "python3"):
+            argv[0] = sys.executable
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=self._root,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                preexec_fn=_limits_preexec if os.name == "posix" else None,
+                env={
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "HOME": tempfile.gettempdir(),
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "LANG": "C",
+                },
+            )
+        except OSError as exc:
+            return ToolResult(success=False, error=f"cannot spawn command: {exc}")
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), self._timeout)
+        except TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            return ToolResult(
+                success=False, error=f"command exceeded {self._timeout}s sandbox timeout"
+            )
+        output = _trunc(f"{stdout.decode()}\n{stderr.decode()}".strip())
         return ToolResult(
             success=proc.returncode == 0,
             output=output,

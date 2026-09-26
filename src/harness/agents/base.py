@@ -22,14 +22,28 @@ class ContextWindow(Protocol):
     """Read/write view over an agent's conversation context.
 
     Implemented by the context-store infrastructure (foundation issue 1.4);
-    agents depend on this protocol, never on the storage backend.
+    agents depend on this protocol, never on the storage backend. Tool
+    structure is preserved end to end: assistant turns may carry
+    `tool_calls` (provider-neutral flat dicts) and tool turns carry the
+    `tool_call_id` they answer, so the next provider request round-trips
+    the native tool-calling protocol faithfully.
     """
 
-    def append(self, role: str, content: str) -> None:
+    def append(
+        self,
+        role: str,
+        content: str,
+        *,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_call_id: str = "",
+        tool_name: str = "",
+    ) -> None:
         """Record one turn (role is 'system' | 'user' | 'assistant' | 'tool')."""
 
-    def as_messages(self) -> list[dict[str, str]]:
-        """Return the window in OpenAI chat format for the model provider."""
+    def as_messages(self) -> list[dict[str, Any]]:
+        """Return the window as provider-neutral chat messages for the
+        model provider (flat `tool_calls` entries, `tool_call_id` on tool
+        turns; each provider projects this onto its own wire format)."""
 
 
 class BaseAgent(ABC):

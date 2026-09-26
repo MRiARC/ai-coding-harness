@@ -115,3 +115,9 @@ def test_security_scan_clean_and_findings(tmp_path: Path) -> None:
     assert not findings.success and len(findings.data["findings"]) >= 2
     assert not SecurityScanTool(tmp_path).execute(path="../outside").success
     assert not SecurityScanTool(tmp_path).execute(path="ghost.py").success
+
+
+def test_detect_test_runner_bare_test_files(tmp_path: Path) -> None:
+    (tmp_path / "test_app.py").write_text("def test_x():\n    pass\n")
+    (tmp_path / "app.py").write_text("x = 1\n")
+    assert detect_test_runner(tmp_path)[0] == "pytest"

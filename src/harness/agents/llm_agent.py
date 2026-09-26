@@ -21,7 +21,7 @@ from typing import Any
 from harness.agents.base import BaseAgent, ContextWindow
 from harness.agents.prompts import FINAL_MARKER, ROLE_PRESETS, RolePreset, system_prompt
 from harness.agents.task import Task, TaskResult
-from harness.engine.budget import BudgetExhausted, BudgetGovernor
+from harness.engine.budget import BudgetExhausted, BudgetGovernor, GovernorMode
 from harness.infrastructure.context_store import ContextStore
 from harness.infrastructure.logging import get_logger
 from harness.infrastructure.model_providers import (
@@ -29,18 +29,45 @@ from harness.infrastructure.model_providers import (
     ModelResponse,
 )
 from harness.orchestration.messages import AgentStatus, ErrorEscalation, Severity, StatusUpdate
-from harness.tools.base import Tool, ToolResult, ToolTier
+from harness.tools.base import AsyncExecutableTool, Tool, ToolResult, ToolTier
 
 logger = get_logger(__name__)
 
 DEFAULT_KEEP_RECENT = 24
 DEFAULT_MAX_STEPS = 16
+MAX_UNMARKED_NUDGES = 2
+_NUDGE = (
+    "You are not finished: use the available tools to complete the task now. "
+    f"Reply with '{FINAL_MARKER}: <summary>' ONLY when done."
+)
 
 _STEP_LIMIT_ERROR = "step limit reached before the agent finished"
 
 
 class StructuredOutputError(Exception):
     """The model's reply could not be parsed as the required JSON structure."""
+
+
+def compose_task_prompt(task: Task) -> str:
+    """Full task brief for a specialist (audit §9).
+
+    Planning output must reach execution: the description is joined by the
+    Architect's acceptance criteria, the expected files, the required tools,
+    and any Manager guidance attached to the task. Long sections are capped
+    (observation compression, improvements §2.2).
+    """
+    sections = [f"TASK: {task.title}", task.description.strip()]
+    if task.acceptance_criteria:
+        criteria = "\n".join(f"- {c[:200]}" for c in task.acceptance_criteria[:10])
+        sections.append(f"ACCEPTANCE CRITERIA:\n{criteria}")
+    if task.files:
+        sections.append("EXPECTED FILES: " + ", ".join(task.files[:12]))
+    if task.required_tools:
+        sections.append("REQUIRED TOOLS: " + ", ".join(task.required_tools[:12]))
+    guidance = task.metadata.get("guidance")
+    if guidance:
+        sections.append(f"MANAGER GUIDANCE: {str(guidance)[:600]}")
+    return "\n\n".join(sections)
 
 
 def extract_json(text: str) -> dict[str, Any]:
@@ -109,12 +136,51 @@ class StoreWindow:
         self._agent_id = agent_id
         self._task_id = task_id
 
-    def append(self, role: str, content: str) -> None:
-        self._store.append_turn(self._agent_id, self._task_id, role, content)
+    def append(
+        self,
+        role: str,
+        content: str,
+        *,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_call_id: str = "",
+        tool_name: str = "",
+    ) -> None:
+        self._store.append_turn(
+            self._agent_id,
+            self._task_id,
+            role,
+            content,
+            tool_calls=tool_calls,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+        )
 
-    def as_messages(self) -> list[dict[str, str]]:
+    def as_messages(self) -> list[dict[str, Any]]:
+        """Provider-neutral projection of the recent window.
+
+        Assistant turns carrying `tool_calls` emit them flat
+        (`{id, name, arguments}`); tool turns emit their `tool_call_id` and
+        `tool_name`. Each provider projects this onto its own wire format in
+        its `_payload`, so the native tool-calling protocol round-trips.
+        """
         context = self._store.load_agent_context(self._agent_id, self._task_id)
-        return [{"role": t.role, "content": t.content} for t in context.recent]
+        messages: list[dict[str, Any]] = []
+        for turn in context.recent:
+            message: dict[str, Any] = {"role": turn.role, "content": turn.content}
+            if turn.tool_calls:
+                message["tool_calls"] = [
+                    {
+                        "id": call.get("id", ""),
+                        "name": call.get("name", ""),
+                        "arguments": call.get("arguments") or {},
+                    }
+                    for call in turn.tool_calls
+                ]
+            if turn.tool_call_id:
+                message["tool_call_id"] = turn.tool_call_id
+                message["tool_name"] = turn.tool_name
+            messages.append(message)
+        return messages
 
 
 class LLMAgent(BaseAgent):
@@ -155,9 +221,11 @@ class LLMAgent(BaseAgent):
     async def execute_task(self, task: Task) -> TaskResult:
         """Run the tool loop until the model stops calling tools or limits hit."""
         self._active_task = task.id
-        self.store.append_turn(
-            self.agent_id, task.id, "user", f"TASK: {task.title}\n{task.description}"
-        )
+        # Rebind the window to *this* task: agents are reusable, and a stale
+        # window would split the conversation across task ids or hide the
+        # task text from the first model call (audit §10).
+        self.context_window = StoreWindow(self.store, self.agent_id, task.id)
+        self.context_window.append("user", compose_task_prompt(task))
         try:
             summary, success, error = await self._loop(task)
         except BudgetExhausted:
@@ -177,9 +245,12 @@ class LLMAgent(BaseAgent):
         The Architect/Manager contracts need parsed structures, not prose:
         first ask, and on a malformed reply ask once more with the schema
         restated before giving up (feeds the recovery ladder as evidence).
+        Tools are withheld on structured calls: models with tool access
+        answer "I need to read the files first" with a tool call instead of
+        the required JSON (live-run finding, M4).
         """
         self.context_window.append("user", user_prompt)
-        reply = await self._generate(instruction)
+        reply = await self._generate(instruction, use_tools=False)
         try:
             return extract_json(reply.content)
         except StructuredOutputError:
@@ -188,24 +259,25 @@ class LLMAgent(BaseAgent):
                 f"Schema: {schema_hint}\nReply with ONLY the JSON object."
             )
             self.context_window.append("user", repair)
-            reply = await self._generate(instruction)
+            reply = await self._generate(instruction, use_tools=False)
             parsed = extract_json(reply.content)
             self.context_window.append("assistant", "recovered with valid JSON")
             return parsed
 
-    async def _generate(self, instruction: str) -> ModelResponse:
+    async def _generate(self, instruction: str, use_tools: bool = True) -> ModelResponse:
         self.governor.check()
+        self.governor.reserve(_estimate_tokens(self.context_window.as_messages()))
         response = await self.provider.generate(
             [
                 {"role": "system", "content": system_prompt(self.role, extra=instruction)},
                 *self.context_window.as_messages(),
             ],
-            self._tool_schemas(),
+            self._tool_schemas() if use_tools else None,
         )
         self.governor.record(
             self.agent_id, self.provider.model, response.prompt_tokens, response.completion_tokens
         )
-        self.context_window.append("assistant", _assistant_transcript(response))
+        self.context_window.append("assistant", response.content or "")
         return response
 
     async def handle_error(self, error: Exception, task: Task) -> ErrorEscalation:
@@ -229,8 +301,10 @@ class LLMAgent(BaseAgent):
     async def _loop(self, task: Task) -> tuple[str, bool, str | None]:
         context = self.store.load_agent_context(self.agent_id, task.id)
         ledger = context.summary if context.summary else ""
+        unmarked_finishes = 0
         for _step in range(self.max_steps):
             self.governor.check()
+            self.governor.reserve(_estimate_tokens(self._messages(task, ledger)))
             response = await self.provider.generate(
                 self._messages(task, ledger), self._tool_schemas()
             )
@@ -240,27 +314,54 @@ class LLMAgent(BaseAgent):
                 response.prompt_tokens,
                 response.completion_tokens,
             )
-            self.context_window.append("assistant", _assistant_transcript(response))
             if response.tool_calls:
-                for call in response.tool_calls:
-                    result = await self._invoke_tool(call.name, call.arguments)
+                calls: list[dict[str, Any]] = [
+                    {
+                        "id": call.id or f"call_{index + 1}",
+                        "name": call.name,
+                        "arguments": call.arguments,
+                    }
+                    for index, call in enumerate(response.tool_calls)
+                ]
+                self.context_window.append("assistant", response.content or "", tool_calls=calls)
+                for call in calls:
+                    result = await self._invoke_tool(call["name"], call["arguments"])
                     self.context_window.append(
-                        "tool", f"[{call.name}] {result.output or result.error}"
+                        "tool",
+                        f"[{call['name']}] {result.output or result.error}",
+                        tool_call_id=call["id"],
+                        tool_name=call["name"],
                     )
                 continue
+            content = response.content or ""
+            if FINAL_MARKER in content:
+                self._maybe_compress(task.id)
+                return content, True, None
+            # A reply with neither tool calls nor the marker is the model
+            # pausing, not finishing (audit §6): nudge it back to work a
+            # bounded number of times, then accept its last word - the
+            # verification gates, not the model's word, judge the truth.
+            if unmarked_finishes < MAX_UNMARKED_NUDGES:
+                unmarked_finishes += 1
+                self.context_window.append("user", _NUDGE)
+                continue
             self._maybe_compress(task.id)
-            return response.content, True, None
+            return content, True, None
         self._maybe_compress(task.id)
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
-    def _messages(self, task: Task, ledger: str) -> list[dict[str, str]]:
+    def _messages(self, task: Task, ledger: str) -> list[dict[str, Any]]:
+        mode_directive = _MODE_DIRECTIVES.get(self.governor.mode(), "")
         return [
             {
                 "role": "system",
                 "content": system_prompt(
                     self.role,
                     fact_ledger=ledger,
-                    extra=f"Working repo task id: {task.id}. End with {FINAL_MARKER} when done.",
+                    extra=(
+                        f"Working repo task id: {task.id}. "
+                        f"End with {FINAL_MARKER} when done.{mode_directive}"
+                    ),
                 ),
             },
             *self.context_window.as_messages(),
@@ -276,9 +377,17 @@ class LLMAgent(BaseAgent):
         ]
 
     async def _invoke_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+        from harness.tools.registry import TOOL_ALIASES
+
         tool = next((t for t in self.tools if t.name == name), None)
+        if tool is None and name in TOOL_ALIASES:
+            # Models call tools by natural names (read_file, grep, ...);
+            # resolve the registry's canonical instance (live-run finding).
+            canonical = TOOL_ALIASES[name]
+            tool = next((t for t in self.tools if t.name == canonical), None)
         if tool is None:
-            return ToolResult(success=False, error=f"unknown tool '{name}'")
+            available = ", ".join(t.name for t in self.tools)
+            return ToolResult(success=False, error=f"unknown tool '{name}'; available: {available}")
         if errors := tool.validate_input(arguments):
             return ToolResult(success=False, error=f"invalid arguments: {'; '.join(errors)}")
         context = {"agent_id": self.agent_id, "model_tier": self.model_tier}
@@ -306,17 +415,29 @@ class LLMAgent(BaseAgent):
 
 async def _call_tool(tool: Tool, arguments: dict[str, Any]) -> ToolResult:
     try:
+        if isinstance(tool, AsyncExecutableTool):
+            return await tool.execute_async(**arguments)
         return tool.execute(**arguments)
     except Exception as exc:
         return ToolResult(success=False, error=f"tool crashed: {exc}")
 
 
-def _assistant_transcript(response: ModelResponse) -> str:
-    text = response.content or ""
-    if response.tool_calls:
-        calls = ", ".join(f"{c.name}({json.dumps(c.arguments)})" for c in response.tool_calls)
-        text = f"{text}\n[calls: {calls}]".strip()
-    return text
+_MODE_DIRECTIVES: dict[GovernorMode, str] = {
+    GovernorMode.NORMAL: "",
+    GovernorMode.SURGICAL: (
+        " BUDGET MODE surgical: no re-planning, minimal exploration; "
+        "work from the localization you already have."
+    ),
+    GovernorMode.FINALIZE: (
+        " BUDGET MODE finalize-only: run verification and repair "
+        "verified-failing tests only, then finish."
+    ),
+}
+
+
+def _estimate_tokens(messages: list[dict[str, Any]]) -> int:
+    """Cheap chars/4 estimate used for pre-dispatch budget reservation."""
+    return sum(len(str(message.get("content") or "")) for message in messages) // 4
 
 
 def _classify_error(error: Exception) -> Severity:

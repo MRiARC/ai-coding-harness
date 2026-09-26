@@ -38,6 +38,7 @@ class SpecialistSlot:
     available_tools: set[str] = field(default_factory=set)
     model_tier: int = 3
     performance: float = 0.8  # historical success rate in specialty
+    role: str = ""  # the agent's preset role (role-aware routing, audit §19)
 
 
 def specialty_match(required: str | None, specialties: set[str], performance: float) -> float:
@@ -45,6 +46,22 @@ def specialty_match(required: str | None, specialties: set[str], performance: fl
     if not required:
         return 0.5  # unrouted tasks are neutral, not disqualified
     return 1.0 if required in specialties else 0.0
+
+
+def role_matches_specialty(role: str, required: str | None) -> bool:
+    """Whether an agent's *role* can take a task of this specialty.
+
+    The Architect emits free-form specialties ("bugfix", "testing");
+    ``SPECIALTY_ROLES`` (specialists module) maps them onto roles that can do
+    the work. Live-run finding (M4 #58): without this, a "bugfix" task tied
+    at 0.5 across every slot and landed on the read-only Locator.
+    """
+    if not required:
+        return False
+    from harness.agents.specialists import SPECIALTY_ROLES
+
+    roles = SPECIALTY_ROLES.get(required, (required,))
+    return role in roles
 
 
 def availability(current_tasks: int, max_concurrent: int) -> float:
@@ -74,8 +91,11 @@ def capability(required_tools: set[str], available_tools: set[str], model_tier: 
 
 def assignment_score(task: Task, slot: SpecialistSlot, team_average_tokens: int) -> float:
     """Weighted multi-factor score from DESIGN_SPEC §5.1."""
+    specialty_hit = specialty_match(
+        task.specialty, slot.specialties, slot.performance
+    ) or role_matches_specialty(slot.role, task.specialty)
     return (
-        specialty_match(task.specialty, slot.specialties, slot.performance) * WEIGHTS["specialty"]
+        specialty_hit * WEIGHTS["specialty"]
         + availability(slot.current_tasks, slot.max_concurrent) * WEIGHTS["availability"]
         + load_balance(slot.tokens_used, team_average_tokens) * WEIGHTS["load"]
         + capability(set(task.required_tools), slot.available_tools, slot.model_tier)
@@ -115,19 +135,51 @@ def file_overlap(subtasks: list[SubTask]) -> dict[tuple[str, str], set[str]]:
 
 
 def execution_batches(subtasks: list[SubTask]) -> list[list[SubTask]]:
-    """Group subtasks into sequential batches; within a batch file-sets are
-    disjoint, so a batch can run in parallel worktrees (the escalation gate)."""
+    """Group subtasks into sequential batches (issue 2.6 + M4 dependency safety).
+
+    Within a batch file-sets are disjoint, so a batch can run in parallel
+    worktrees. Safety rules (audit §11):
+
+    - a subtask never enters a batch before every known `depends_on` id is
+      placed in an earlier batch,
+    - an empty/unknown file-set means sequential: it runs as a solo batch,
+      never parallel with anything,
+    - a dependency cycle degrades to strictly sequential solo batches.
+    """
     remaining = list(subtasks)
+    known_ids = {subtask.id for subtask in subtasks}
     batches: list[list[SubTask]] = []
+    placed: set[str] = set()
+
     while remaining:
+        ready = [
+            subtask
+            for subtask in remaining
+            if all(dep in placed for dep in subtask.depends_on if dep in known_ids)
+        ]
+        if not ready:
+            for subtask in remaining:
+                batches.append([subtask])
+            break
         batch: list[SubTask] = []
         used_files: set[str] = set()
-        for subtask in list(remaining):
-            if not (used_files & set(subtask.files)):
-                batch.append(subtask)
-                used_files |= set(subtask.files)
+        for subtask in ready:
+            files = set(subtask.files)
+            if not files or (used_files & files):
+                continue  # unknown footprint -> solo batch, never parallel
+            batch.append(subtask)
+            used_files |= files
+        if batch:
+            for subtask in batch:
                 remaining.remove(subtask)
-        batches.append(batch)
+                placed.add(subtask.id)
+            batches.append(batch)
+            continue
+        # Nothing parallelizable this round: place the first ready solo.
+        first = ready[0]
+        remaining.remove(first)
+        placed.add(first.id)
+        batches.append([first])
     return batches
 
 

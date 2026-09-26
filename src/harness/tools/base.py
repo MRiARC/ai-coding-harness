@@ -57,3 +57,16 @@ class Tool(ABC):
     def execute(self, **kwargs: Any) -> ToolResult:
         """Perform the tool's operation. Must never raise: return a failing
         `ToolResult` instead so the recovery ladder can reason over it."""
+
+
+class AsyncExecutableTool(Tool):
+    """Tool whose heavy work (subprocesses) is awaitable.
+
+    The sync `execute` stays available for one-shot callers; the agent loop
+    and pipeline prefer `execute_async` so long-running commands do not
+    block the event loop while parallel specialists work (M4 issue 4.5).
+    """
+
+    async def execute_async(self, **kwargs: Any) -> ToolResult:
+        """Awaitable variant of `execute` with identical semantics."""
+        raise NotImplementedError

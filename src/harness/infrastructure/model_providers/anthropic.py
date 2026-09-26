@@ -15,7 +15,12 @@ DEFAULT_BASE_URL = "https://api.anthropic.com"
 
 
 def _to_anthropic_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
-    """Translate OpenAI-style messages into (system, anthropic messages)."""
+    """Translate neutral messages into (system, anthropic messages).
+
+    Assistant `tool_calls` arrive flat (`{id, name, arguments}`) and become
+    `tool_use` content blocks; tool turns carry `tool_call_id` and become
+    `tool_result` blocks so the protocol pairs survive every turn.
+    """
     system_parts: list[str] = []
     out: list[dict[str, Any]] = []
     for message in messages:
@@ -29,7 +34,7 @@ def _to_anthropic_messages(messages: list[dict[str, Any]]) -> tuple[str, list[di
                     "content": [
                         {
                             "type": "tool_result",
-                            "tool_use_id": message.get("tool_call_id", ""),
+                            "tool_use_id": str(message.get("tool_call_id") or ""),
                             "content": str(content),
                         }
                     ],
@@ -42,9 +47,9 @@ def _to_anthropic_messages(messages: list[dict[str, Any]]) -> tuple[str, list[di
             blocks.extend(
                 {
                     "type": "tool_use",
-                    "id": call.get("id", ""),
+                    "id": str(call.get("id", "")),
                     "name": call.get("name", ""),
-                    "input": call.get("arguments", {}),
+                    "input": call.get("arguments") or {},
                 }
                 for call in message["tool_calls"]
             )

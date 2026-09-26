@@ -32,17 +32,28 @@ from harness.agents.manager import (
     execution_batches,
 )
 from harness.agents.specialists import build_agent
-from harness.agents.task import TaskResult
+from harness.agents.task import Task, TaskResult
 from harness.config import HarnessConfig
 from harness.engine.budget import BudgetGovernor
 from harness.engine.evidence import EvidencePack, build_summary
-from harness.engine.recovery import RecoveryLadder
+from harness.engine.recovery import Executor, RecoveryLadder, Rerouter
 from harness.monitoring.metrics import MetricsCollector
 from harness.security.audit import AuditLog
 from harness.security.input_guard import detect_prompt_injection
+from harness.tools.execution import RunTestsTool, detect_test_runner
 from harness.tools.filesystem import summarize_repository
 from harness.tools.registry import build_default_tools
+from harness.verification.baseline import Baseline, capture_baseline
 from harness.verification.pipeline import VerificationPipeline, stage_report
+
+_ROUTABLE_ERROR_TYPES = {
+    "KeyError",
+    "AttributeError",
+    "TimeoutError",
+    "ConnectionError",
+    "ValueError",
+    "TypeError",
+}
 
 
 @dataclass
@@ -75,8 +86,10 @@ class HarnessPipeline:
         self._provider = provider
         self._tools = build_default_tools(self._repo_root)
         self._agents: dict[str, Any] = {}
+        self._coordination_ids: set[str] = set()
         self._manager: ManagerAgent | None = None
         self._architect: ArchitectAgent | None = None
+        self._collaborators_added = 0
         # Placeholder governor: replaced per-run in `run()` before any call.
         self._placeholder_governor = BudgetGovernor(store, config.budget, "unassigned")
         self._build_agents()
@@ -98,6 +111,7 @@ class HarnessPipeline:
                     governor=self._placeholder_governor,
                 )
                 self._agents[agent_config.agent_id] = self._architect
+                self._coordination_ids.add(agent_config.agent_id)
                 continue
             if agent_config.role == "manager":
                 self._manager = ManagerAgent(
@@ -110,6 +124,7 @@ class HarnessPipeline:
                     governor=self._placeholder_governor,
                 )
                 self._agents[agent_config.agent_id] = self._manager
+                self._coordination_ids.add(agent_config.agent_id)
                 continue
             agent = build_agent(
                 agent_id=agent_config.agent_id,
@@ -132,6 +147,7 @@ class HarnessPipeline:
                     specialties=weak_specialties(set(specialties)),
                     available_tools={tool.name for tool in self._tools},
                     model_tier=agent_config.model_tier,
+                    role=agent_config.role,
                 )
             )
         if self._manager is not None:
@@ -171,23 +187,39 @@ class HarnessPipeline:
             {"event": "architect.plan", "run_id": run_id, "subtasks": [s.id for s in plan.subtasks]}
         )
 
+        # Reproduction-first baseline (improvements §1.1): run the target
+        # suite BEFORE any specialist touches a file.
+        baseline: Baseline | None = None
+        if detect_test_runner(self._repo_root)[0] != "none":
+            run_tool = RunTestsTool(self._repo_root)
+            baseline = await capture_baseline(self._repo_root, run_tool, plan.reproduction_test)
+            pack.trace(
+                {
+                    "event": "baseline.captured",
+                    "run_id": run_id,
+                    "runnable": baseline.runnable,
+                    "pre_existing_failures": len(baseline.failed),
+                }
+            )
+
         task_results: list[TaskResult] = []
         metrics.stage_started("specialists")
         if self._manager is not None and plan.subtasks:
-            ladder = RecoveryLadder(self._manager, architect, self._store)
             for batch in execution_batches(plan.subtasks):
-                outcomes = await self._run_batch(batch, ladder, metrics, pack, run_id)
+                outcomes = await self._run_batch(batch, governor, metrics, pack, run_id, architect)
                 task_results.extend(outcomes)
         metrics.stage_finished("specialists")
 
         metrics.stage_started("verification")
         diff = self._working_diff()
-        verification = VerificationPipeline(self._repo_root)
+        verification = VerificationPipeline(self._repo_root, baseline)
         stage_results = await verification.run(diff, plan, architect)
         metrics.stage_finished("verification")
         pack.patch(diff)
         pack.test_report(stage_report(stage_results))
         pack.token_report(metrics.report())
+        if baseline is not None:
+            pack.baseline_report(baseline.to_report())
         overall = all(r.passed for r in stage_results if r.blocking) and all(
             r.success for r in task_results
         )
@@ -224,13 +256,44 @@ class HarnessPipeline:
     async def _run_batch(
         self,
         batch: list[SubTask],
-        ladder: RecoveryLadder,
+        governor: BudgetGovernor,
         metrics: MetricsCollector,
         pack: EvidencePack,
         run_id: str,
+        architect: ArchitectAgent,
     ) -> list[TaskResult]:
-        """Execute one disjoint batch; specialists within it run concurrently."""
-        import asyncio
+        """Execute one file-disjoint batch, strictly sequentially.
+
+        The batch structure exists so a future worktree fan-out can run its
+        members in parallel; until worktrees land, concurrent specialists
+        share ONE working tree (edits interleave, test runs race), so the
+        audit's §11 finding is honored by serializing inside the batch.
+        """
+        results: list[TaskResult] = []
+
+        from harness.orchestration.messages import ErrorEscalation
+
+        def make_reroute(agent_id: str) -> Rerouter:
+            """Genuine L2 re-route (audit §8): 'reassign' swaps to another
+            specialist; 'add collaborators' spawns one (bounded per run)."""
+
+            def reroute(task: Task, escalation: ErrorEscalation, guidance: str) -> Executor | None:
+                if "reassign" in guidance:
+                    alternative = next(
+                        (
+                            a
+                            for aid, a in self._agents.items()
+                            if aid != agent_id and aid not in self._coordination_ids
+                        ),
+                        None,
+                    )
+                    return alternative.execute_task if alternative else None
+                if "add collaborators" in guidance:
+                    collaborator = self._add_collaborator(agent_id, governor, pack, run_id)
+                    return collaborator.execute_task if collaborator else None
+                return None
+
+            return reroute
 
         async def run_one(subtask: SubTask) -> TaskResult:
             task = subtask.to_task()
@@ -245,11 +308,25 @@ class HarnessPipeline:
                     "agent": agent_id,
                 }
             )
-            result = await ladder.run(
-                task,
-                agent.execute_task,
-                lambda t, r: agent.handle_error(RuntimeError(r.error or "task failed"), t),
+            ladder = RecoveryLadder(
+                self._manager,
+                architect,
+                self._store,
+                reroute=make_reroute(agent_id),
+                on_event=pack.trace,
+                governor=governor,
             )
+
+            async def classify(t: Task, r: TaskResult) -> ErrorEscalation:
+                escalation = await agent.handle_error(RuntimeError(r.error or "task failed"), t)
+                # _attempt prefixes the original exception type; keep it so the
+                # Manager's categorization sees KeyError/AttributeError etc.
+                type_name = (r.error or "").split(":", 1)[0]
+                if type_name in _ROUTABLE_ERROR_TYPES:
+                    escalation = escalation.model_copy(update={"error_type": type_name})
+                return escalation
+
+            result = await ladder.run(task, agent.execute_task, classify)
             metrics.record_result(result, agent_id=agent_id)
             pack.trace(
                 {
@@ -262,7 +339,46 @@ class HarnessPipeline:
             )
             return result
 
-        return list(await asyncio.gather(*(run_one(subtask) for subtask in batch)))
+        for subtask in batch:
+            results.append(await run_one(subtask))
+        return results
+
+    def _add_collaborator(
+        self, primary_agent_id: str, governor: BudgetGovernor, pack: EvidencePack, run_id: str
+    ) -> Any | None:
+        """Spawn an extra specialist for a complex task (bounded, per run)."""
+        if self._collaborators_added >= 2:
+            return None
+        self._collaborators_added += 1
+        agent_id = f"{primary_agent_id}-collab-{self._collaborators_added}"
+        agent = build_agent(
+            agent_id=agent_id,
+            role="implementer",
+            model_config={"provider": self._config.models["default"].provider},
+            provider=self._provider,
+            store=self._store,
+            governor=self._placeholder_governor,
+            tools=self._tools,
+        )
+        agent.governor = governor
+        self._agents[agent_id] = agent
+        self._specialist_slots.append(
+            SpecialistSlot(
+                agent_id=agent_id,
+                specialties=weak_specialties({"implementer"}),
+                available_tools={tool.name for tool in self._tools},
+                role="implementer",
+            )
+        )
+        pack.trace(
+            {
+                "event": "specialist.collaborator_added",
+                "run_id": run_id,
+                "agent": agent_id,
+                "for": primary_agent_id,
+            }
+        )
+        return agent
 
     def _working_diff(self) -> str:
         try:

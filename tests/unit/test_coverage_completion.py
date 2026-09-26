@@ -343,9 +343,9 @@ async def test_final_review_skipped_without_architect(repo) -> None:
 
     results = await VerificationPipeline(repo).run(diff="", plan=None, architect=None)
     by_name = {r.name: r for r in results}
-    assert "5-final-review" in by_name
-    assert by_name["5-final-review"].passed
-    assert "skipped" in by_name["5-final-review"].detail
+    assert "6-final-review" in by_name
+    assert by_name["6-final-review"].passed
+    assert "skipped" in by_name["6-final-review"].detail
 
 
 @pytest.fixture
