@@ -27,6 +27,10 @@ class FakeProvider(ModelProvider):
         super().__init__(config, client)
         self._responses = list(responses)
         self.calls: list[dict[str, Any]] = []
+        from harness.infrastructure.model_providers.capability import ModelCapabilities
+
+        # Scripted models speak native tool calls unless a test overrides this.
+        self.capabilities = ModelCapabilities(native_tool_calls=True)
 
     def _resolve_api_key(self) -> str:
         return "fake-key"
