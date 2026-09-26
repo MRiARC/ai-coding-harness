@@ -1,0 +1,275 @@
+"""LLMAgent loop tests: tools, budget, compression, classification (issue 2.7)."""
+
+from __future__ import annotations
+
+from typing import ClassVar
+
+import pytest
+
+from harness.agents.llm_agent import (
+    DEFAULT_KEEP_RECENT,
+    LLMAgent,
+    StoreWindow,
+    StructuredOutputError,
+    extract_json,
+)
+from harness.agents.task import Task
+from harness.config import BudgetConfig
+from harness.engine.budget import BudgetExhausted, BudgetGovernor
+from harness.infrastructure.context_store import MemoryContextStore
+from harness.infrastructure.model_providers import FakeProvider, ModelResponse, ToolCall
+from harness.orchestration.messages import Severity
+from harness.tools.base import Tool, ToolResult, ToolTier
+
+
+class EchoTool(Tool):
+    name, tier, description = "echo_tool", ToolTier.BASIC, "echo content back"
+    parameters: ClassVar[dict] = {"type": "object", "properties": {"content": {"type": "string"}}}
+
+    def validate_input(self, arguments: dict) -> list[str]:
+        return [] if "content" in arguments else ["missing 'content'"]
+
+    def check_permissions(self, context: dict) -> bool:
+        return context.get("model_tier", 1) >= self.tier.value
+
+    def execute(self, content: str = "") -> ToolResult:
+        return ToolResult(success=True, output=f"echo: {content}")
+
+
+class WriterTool(EchoTool):
+    name, tier = "writer_tool", ToolTier.DEVELOPMENT
+
+
+class CrashTool(Tool):
+    name, tier, description = "crash_tool", ToolTier.BASIC, "always crashes"
+    parameters: ClassVar[dict] = {"type": "object", "properties": {}}
+
+    def validate_input(self, arguments: dict) -> list[str]:
+        return []
+
+    def check_permissions(self, context: dict) -> bool:
+        return True
+
+    def execute(self, **kwargs) -> ToolResult:
+        raise RuntimeError("boom")
+
+
+def _text(text: str) -> ModelResponse:
+    return ModelResponse(content=text)
+
+
+def _call(name: str, **arguments: str) -> ModelResponse:
+    return ModelResponse(content="", tool_calls=[ToolCall(name=name, arguments=arguments)])
+
+
+@pytest.fixture
+def store() -> MemoryContextStore:
+    return MemoryContextStore()
+
+
+def _agent(
+    store,
+    provider,
+    *,
+    role: str = "implementer",
+    model_tier: int = 3,
+    tools: list[Tool] | None = None,
+    total_tokens: int = 100_000,
+    max_steps: int = 8,
+    keep_recent: int = DEFAULT_KEEP_RECENT,
+) -> LLMAgent:
+    governor = BudgetGovernor(store, BudgetConfig(total_tokens=total_tokens), "corr-llm")
+    return LLMAgent(
+        agent_id="impl-1",
+        model_config={"provider": "fake"},
+        tools=tools or [EchoTool(), WriterTool()],
+        context_window=StoreWindow(store, "impl-1", "t-1"),
+        provider=provider,
+        store=store,
+        governor=governor,
+        role=role,
+        model_tier=model_tier,
+        max_steps=max_steps,
+        keep_recent=keep_recent,
+    )
+
+
+TASK = Task(id="t-1", title="do a thing", description="the thing")
+
+
+async def test_tool_call_then_completion_flow(store, fake_model_config) -> None:
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("echo_tool", content="hello"),
+            _text(f"TASK_COMPLETE: echoed it\n{_json_block()}"),
+        ],
+    )
+    agent = _agent(store, provider)
+    result = await agent.execute_task(TASK)
+    assert result.success and "TASK_COMPLETE" in result.summary
+    usage = store.token_usage("corr-llm")
+    assert usage.total_tokens > 0
+    context = store.load_agent_context("impl-1", "t-1")
+    assert context.milestones and context.milestones[0].startswith("OK")
+    assert "[echo_tool]" in context.summary or any("echo_tool" in t.content for t in context.recent)
+
+
+def _json_block() -> str:
+    return '```json {"final": true} ```'
+
+
+async def test_unknown_tool_becomes_tool_result(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_call("nope"), _text("done")])
+    result = await _agent(store, provider).execute_task(TASK)
+    assert result.success
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("unknown tool 'nope'" in t.content for t in window.recent)
+
+
+async def test_invalid_arguments_become_tool_result(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_call("echo_tool"), _text("done")])
+    result = await _agent(store, provider).execute_task(TASK)
+    assert result.success
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("invalid arguments" in t.content for t in window.recent)
+
+
+async def test_permission_denial_at_low_tier(store, fake_model_config) -> None:
+    provider = FakeProvider(
+        fake_model_config, responses=[_call("writer_tool", content="x"), _text("done")]
+    )
+    agent = _agent(store, provider, model_tier=1)
+    await agent.execute_task(TASK)
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("permission denied" in t.content for t in window.recent)
+
+
+async def test_preset_tier_limits_schemas(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_text("done")])
+    agent = _agent(store, provider, role="locator", tools=[EchoTool(), WriterTool()])
+    await agent.execute_task(TASK)
+    sent = provider.calls[0]["tools"]
+    assert [t["name"] for t in sent] == ["echo_tool"]  # DEVELOPMENT filtered out
+
+
+async def test_crashing_tool_returns_error_result(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_call("crash_tool"), _text("done")])
+    result = await _agent(store, provider, tools=[CrashTool()]).execute_task(TASK)
+    assert result.success
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("tool crashed: boom" in t.content for t in window.recent)
+
+
+async def test_step_limit_is_an_honest_failure(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_call("echo_tool", content="loop")] * 10)
+    result = await _agent(store, provider, max_steps=3).execute_task(TASK)
+    assert not result.success
+    assert "step limit" in (result.error or "")
+
+
+async def test_budget_exhaustion_stops_gracefully(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_call("echo_tool", content="x")] * 5)
+    agent = _agent(store, provider, total_tokens=5)
+    result = await agent.execute_task(TASK)
+    assert not result.success and "budget exhausted" in (result.error or "")
+
+
+async def test_compression_triggers_on_long_windows(store, fake_model_config) -> None:
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("echo_tool", content="a"),
+            _call("echo_tool", content="b"),
+            _call("echo_tool", content="c"),
+            _text("TASK_COMPLETE: finished"),
+        ],
+    )
+    agent = _agent(store, provider, keep_recent=4)
+    await agent.execute_task(TASK)
+    context = store.load_agent_context("impl-1", "t-1")
+    assert context.summary  # window was folded
+
+
+async def test_handle_error_classification_and_attempts(store, fake_model_config) -> None:
+    agent = _agent(store, FakeProvider(fake_model_config, responses=[]))
+    task = TASK
+    cases = [
+        (BudgetExhausted("b"), Severity.FATAL),
+        (TimeoutError("t"), Severity.TRANSIENT),
+        (ConnectionError("c"), Severity.TRANSIENT),
+        (StructuredOutputError("s"), Severity.RECOVERABLE),
+        (ValueError("v"), Severity.RECOVERABLE),
+        (RuntimeError("r"), Severity.RECOVERABLE),
+    ]
+    for error, expected in cases:
+        escalation = await agent.handle_error(error, task)
+        assert escalation.severity == expected, error
+    assert await agent.handle_error(ValueError("again"), task)
+    assert agent._attempts["t-1"] == 7
+
+
+def test_report_status_reflects_activity(store, fake_model_config) -> None:
+    agent = _agent(store, FakeProvider(fake_model_config, responses=[]))
+    assert agent.report_status().status.value == "idle"
+    agent._active_task = "t-1"
+    assert agent.report_status().status.value == "working"
+    assert agent.report_status().task_id == "t-1"
+
+
+def test_extract_json_variants() -> None:
+    assert extract_json('{"a": 1}') == {"a": 1}
+    assert extract_json('```json\n{"a": 2}\n```') == {"a": 2}
+    assert extract_json('Sure! {"a": 3} hope that helps') == {"a": 3}
+    with pytest.raises(StructuredOutputError, match="no JSON"):
+        extract_json("no structure here")
+    with pytest.raises(StructuredOutputError, match="no JSON"):
+        extract_json("```json\n```")  # empty fence
+    assert extract_json('{"a": "say \\"} ok"}') == {"a": 'say "} ok'}  # escapes
+    with pytest.raises(StructuredOutputError, match="unterminated"):
+        extract_json("{not json")
+    with pytest.raises(StructuredOutputError, match="invalid JSON"):
+        extract_json('{"a": }')
+    with pytest.raises(StructuredOutputError, match="expected a JSON object"):
+        extract_json("```json\n[1, 2]\n```")
+
+
+def test_system_prompt_composition() -> None:
+    from harness.agents.prompts import system_prompt
+
+    plain = system_prompt("implementer")
+    assert "Implementer" in plain
+    unknown = system_prompt("mystery-role")
+    assert "mystery-role" in unknown
+    layered = system_prompt("locator", fact_ledger="- decided X", extra="Be brief.")
+    assert "Fact ledger" in layered and "- decided X" in layered and "Be brief." in layered
+
+
+async def test_structured_call_repairs_once(store, fake_model_config) -> None:
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _text("oops not json"),
+            _text('{"answer": 42}'),
+        ],
+    )
+    agent = _agent(store, provider, role="architect")
+    data = await agent.structured_call("schema", "question", '{"answer": int}')
+    assert data == {"answer": 42}
+
+
+async def test_structured_call_fails_after_repair(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_text("nope"), _text("still nope")])
+    agent = _agent(store, provider, role="architect")
+    with pytest.raises(StructuredOutputError):
+        await agent.structured_call("schema", "question", "{}")
+
+
+def test_store_window_roundtrip(store) -> None:
+    window = StoreWindow(store, "a-1", "t-9")
+    window.append("user", "hi")
+    window.append("assistant", "ho")
+    assert window.as_messages() == [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "ho"},
+    ]

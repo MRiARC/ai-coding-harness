@@ -100,8 +100,25 @@ class AgentConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     agent_id: str = Field(min_length=1)
-    role: Literal["architect", "manager", "locator", "implementer", "verifier"] = "implementer"
+    role: Literal[
+        "architect",
+        "manager",
+        "locator",
+        "implementer",
+        "verifier",
+        "backend-api",
+        "database",
+        "frontend",
+        "testing",
+        "devops",
+        "security",
+        "documentation",
+        "code-review",
+    ] = "implementer"
     model: str = Field(description="Key into the top-level `models` mapping.")
+    model_tier: int = Field(
+        default=3, ge=1, le=4, description="Capability tier used by tool permission gating."
+    )
     enabled: bool = True
 
 

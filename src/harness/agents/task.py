@@ -19,6 +19,15 @@ class Task(BaseModel):
     subtask_ids: list[str] = Field(
         default_factory=list, description="Children when the Architect decomposes a task."
     )
+    specialty: str | None = Field(
+        default=None, description="Specialty required (e.g. 'backend-api', 'testing')."
+    )
+    complexity: int = Field(default=5, ge=1, le=10, description="Architect's 1-10 estimate.")
+    required_tools: list[str] = Field(default_factory=list)
+    files: list[str] = Field(
+        default_factory=list,
+        description="Files this task is expected to touch (overlap gate input).",
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
