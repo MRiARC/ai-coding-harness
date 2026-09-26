@@ -12,6 +12,7 @@ import os
 import sys
 
 from harness import __version__
+from harness.config import ConfigError, ConfigLoader
 
 API_KEY_ENV = "AI_API_KEY"
 
@@ -22,18 +23,28 @@ def doctor() -> int:
     print(f"harness {__version__}")
     problems: list[str] = []
 
-    if not os.environ.get(API_KEY_ENV):
+    loader = ConfigLoader()
+    path = loader.resolve_path()
+    if path is None:
+        print("[warn] no configuration file found; using built-in defaults")
         print(
             f"[warn] environment variable {API_KEY_ENV} is not set; "
             "the harness will run in offline/test mode only"
         )
-
-    if os.path.exists("harness.yaml"):
-        print("[ok] found harness.yaml")
-    elif os.path.exists("config.example.yaml"):
-        print("[warn] no harness.yaml found; copy config.example.yaml to harness.yaml")
     else:
-        print("[warn] no configuration file found; using built-in defaults")
+        try:
+            config = loader.load()
+        except ConfigError as exc:
+            problems.append(f"configuration invalid:\n{exc}")
+        else:
+            print(f"[ok] configuration valid: {path}")
+            default_model = config.models.get("default")
+            key_env = default_model.api_key_env if default_model else API_KEY_ENV
+            if not os.environ.get(key_env):
+                print(
+                    f"[warn] environment variable {key_env} is not set; "
+                    "the harness will run in offline/test mode only"
+                )
 
     for problem in problems:
         print(f"[error] {problem}")
