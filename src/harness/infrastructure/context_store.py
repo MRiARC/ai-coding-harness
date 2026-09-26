@@ -12,6 +12,7 @@ extra for the full deployment vision; the interface is identical.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
@@ -26,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from harness.config import StorageConfig
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 Summarizer = Callable[[Sequence[tuple[str, str]]], str]
 """Turns folded turns [(role, content), ...] into a summary paragraph.
@@ -90,11 +91,20 @@ def _compress_windows(ctx: AgentContext, *, keep_recent: int, summarize: Summari
 
 
 class ChatTurn(BaseModel):
-    """One conversation turn inside an agent's recent window."""
+    """One conversation turn inside an agent's recent window.
+
+    Native tool-calling structure is preserved end to end: an assistant turn
+    may carry `tool_calls` (id/name/arguments in provider-neutral flat form)
+    and a tool turn carries the `tool_call_id` (+ `tool_name`) it answers, so
+    the next provider request can round-trip the protocol faithfully.
+    """
 
     seq: int
     role: str
     content: str
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    tool_call_id: str = ""
+    tool_name: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -134,8 +144,19 @@ class ContextStore(ABC):
         """Fetch a global-context entry, or None."""
 
     @abstractmethod
-    def append_turn(self, agent_id: str, task_id: str, role: str, content: str) -> ChatTurn:
-        """Record one conversation turn in the agent's recent window."""
+    def append_turn(
+        self,
+        agent_id: str,
+        task_id: str,
+        role: str,
+        content: str,
+        *,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_call_id: str = "",
+        tool_name: str = "",
+    ) -> ChatTurn:
+        """Record one conversation turn (with optional tool structure) in the
+        agent's recent window."""
 
     @abstractmethod
     def load_agent_context(self, agent_id: str, task_id: str) -> AgentContext:
@@ -198,9 +219,26 @@ class MemoryContextStore(ContextStore):
     def load_global(self, key: str) -> dict[str, Any] | None:
         return self._global.get(key)
 
-    def append_turn(self, agent_id: str, task_id: str, role: str, content: str) -> ChatTurn:
+    def append_turn(
+        self,
+        agent_id: str,
+        task_id: str,
+        role: str,
+        content: str,
+        *,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_call_id: str = "",
+        tool_name: str = "",
+    ) -> ChatTurn:
         ctx = self._ensure(agent_id, task_id)
-        turn = ChatTurn(seq=ctx.next_seq, role=role, content=content)
+        turn = ChatTurn(
+            seq=ctx.next_seq,
+            role=role,
+            content=content,
+            tool_calls=tool_calls or [],
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+        )
         ctx.recent.append(turn)
         ctx.next_seq += 1
         return turn
@@ -284,7 +322,11 @@ class SQLiteContextStore(ContextStore):
                     PRIMARY KEY (agent_id, task_id));
                 CREATE TABLE IF NOT EXISTS context_windows (
                     agent_id TEXT NOT NULL, task_id TEXT NOT NULL, seq INTEGER NOT NULL,
-                    role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL,
+                    role TEXT NOT NULL, content TEXT NOT NULL,
+                    tool_calls TEXT NOT NULL DEFAULT '[]',
+                    tool_call_id TEXT NOT NULL DEFAULT '',
+                    tool_name TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
                     PRIMARY KEY (agent_id, task_id, seq));
                 CREATE TABLE IF NOT EXISTS token_usage (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -297,6 +339,15 @@ class SQLiteContextStore(ContextStore):
                 CREATE INDEX IF NOT EXISTS idx_usage_corr ON token_usage(correlation_id);
                 CREATE INDEX IF NOT EXISTS idx_windows ON context_windows(agent_id, task_id);
             """)
+            if self._conn.execute("PRAGMA user_version").fetchone()[0] < 2:
+                # v1 -> v2: structured tool-call columns on existing databases.
+                for column in (
+                    "tool_calls TEXT NOT NULL DEFAULT '[]'",
+                    "tool_call_id TEXT NOT NULL DEFAULT ''",
+                    "tool_name TEXT NOT NULL DEFAULT ''",
+                ):
+                    with contextlib.suppress(sqlite3.OperationalError):
+                        self._conn.execute(f"ALTER TABLE context_windows ADD COLUMN {column}")
             self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     # -- global ------------------------------------------------------------
@@ -316,7 +367,17 @@ class SQLiteContextStore(ContextStore):
         return json.loads(row[0]) if row else None
 
     # -- agent contexts ------------------------------------------------------
-    def append_turn(self, agent_id: str, task_id: str, role: str, content: str) -> ChatTurn:
+    def append_turn(
+        self,
+        agent_id: str,
+        task_id: str,
+        role: str,
+        content: str,
+        *,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_call_id: str = "",
+        tool_name: str = "",
+    ) -> ChatTurn:
         with self._lock, self._conn:
             row = self._conn.execute(
                 "SELECT COALESCE(MAX(seq) + 1, 0) FROM context_windows "
@@ -326,16 +387,35 @@ class SQLiteContextStore(ContextStore):
             seq = int(row[0])
             now = datetime.now(UTC).isoformat()
             self._conn.execute(
-                "INSERT INTO context_windows(agent_id, task_id, seq, role, content, created_at) "
-                "VALUES(?, ?, ?, ?, ?, ?)",
-                (agent_id, task_id, seq, role, content, now),
+                "INSERT INTO context_windows(agent_id, task_id, seq, role, content, "
+                "tool_calls, tool_call_id, tool_name, created_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    agent_id,
+                    task_id,
+                    seq,
+                    role,
+                    content,
+                    json.dumps(tool_calls or []),
+                    tool_call_id,
+                    tool_name,
+                    now,
+                ),
             )
-        return ChatTurn(seq=seq, role=role, content=content, created_at=datetime.fromisoformat(now))
+        return ChatTurn(
+            seq=seq,
+            role=role,
+            content=content,
+            tool_calls=tool_calls or [],
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            created_at=datetime.fromisoformat(now),
+        )
 
     def load_agent_context(self, agent_id: str, task_id: str) -> AgentContext:
         rows = self._conn.execute(
-            "SELECT seq, role, content, created_at FROM context_windows "
-            "WHERE agent_id = ? AND task_id = ? ORDER BY seq",
+            "SELECT seq, role, content, tool_calls, tool_call_id, tool_name, created_at "
+            "FROM context_windows WHERE agent_id = ? AND task_id = ? ORDER BY seq",
             (agent_id, task_id),
         ).fetchall()
         meta = self._conn.execute(
@@ -343,7 +423,15 @@ class SQLiteContextStore(ContextStore):
             (agent_id, task_id),
         ).fetchone()
         turns = [
-            ChatTurn(seq=r[0], role=r[1], content=r[2], created_at=datetime.fromisoformat(r[3]))
+            ChatTurn(
+                seq=r[0],
+                role=r[1],
+                content=r[2],
+                tool_calls=json.loads(r[3]),
+                tool_call_id=r[4],
+                tool_name=r[5],
+                created_at=datetime.fromisoformat(r[6]),
+            )
             for r in rows
         ]
         return AgentContext(
@@ -374,8 +462,9 @@ class SQLiteContextStore(ContextStore):
                 (context.agent_id, context.task_id),
             )
             self._conn.executemany(
-                "INSERT INTO context_windows(agent_id, task_id, seq, role, content, created_at) "
-                "VALUES(?, ?, ?, ?, ?, ?)",
+                "INSERT INTO context_windows(agent_id, task_id, seq, role, content, "
+                "tool_calls, tool_call_id, tool_name, created_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         context.agent_id,
@@ -383,6 +472,9 @@ class SQLiteContextStore(ContextStore):
                         t.seq,
                         t.role,
                         t.content,
+                        json.dumps(t.tool_calls),
+                        t.tool_call_id,
+                        t.tool_name,
                         t.created_at.isoformat(),
                     )
                     for t in context.recent
@@ -524,7 +616,17 @@ class PostgresContextStore(ContextStore):
             row = cur.fetchone()
         return json.loads(row[0]) if row else None
 
-    def append_turn(self, agent_id: str, task_id: str, role: str, content: str) -> ChatTurn:
+    def append_turn(
+        self,
+        agent_id: str,
+        task_id: str,
+        role: str,
+        content: str,
+        *,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_call_id: str = "",
+        tool_name: str = "",
+    ) -> ChatTurn:
         raise NotImplementedError  # pragma: no cover - completed with PG pooling in milestone 2
 
     def load_agent_context(self, agent_id: str, task_id: str) -> AgentContext:

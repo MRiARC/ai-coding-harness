@@ -109,12 +109,51 @@ class StoreWindow:
         self._agent_id = agent_id
         self._task_id = task_id
 
-    def append(self, role: str, content: str) -> None:
-        self._store.append_turn(self._agent_id, self._task_id, role, content)
+    def append(
+        self,
+        role: str,
+        content: str,
+        *,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_call_id: str = "",
+        tool_name: str = "",
+    ) -> None:
+        self._store.append_turn(
+            self._agent_id,
+            self._task_id,
+            role,
+            content,
+            tool_calls=tool_calls,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+        )
 
-    def as_messages(self) -> list[dict[str, str]]:
+    def as_messages(self) -> list[dict[str, Any]]:
+        """Provider-neutral projection of the recent window.
+
+        Assistant turns carrying `tool_calls` emit them flat
+        (`{id, name, arguments}`); tool turns emit their `tool_call_id` and
+        `tool_name`. Each provider projects this onto its own wire format in
+        its `_payload`, so the native tool-calling protocol round-trips.
+        """
         context = self._store.load_agent_context(self._agent_id, self._task_id)
-        return [{"role": t.role, "content": t.content} for t in context.recent]
+        messages: list[dict[str, Any]] = []
+        for turn in context.recent:
+            message: dict[str, Any] = {"role": turn.role, "content": turn.content}
+            if turn.tool_calls:
+                message["tool_calls"] = [
+                    {
+                        "id": call.get("id", ""),
+                        "name": call.get("name", ""),
+                        "arguments": call.get("arguments") or {},
+                    }
+                    for call in turn.tool_calls
+                ]
+            if turn.tool_call_id:
+                message["tool_call_id"] = turn.tool_call_id
+                message["tool_name"] = turn.tool_name
+            messages.append(message)
+        return messages
 
 
 class LLMAgent(BaseAgent):
@@ -205,7 +244,7 @@ class LLMAgent(BaseAgent):
         self.governor.record(
             self.agent_id, self.provider.model, response.prompt_tokens, response.completion_tokens
         )
-        self.context_window.append("assistant", _assistant_transcript(response))
+        self.context_window.append("assistant", response.content or "")
         return response
 
     async def handle_error(self, error: Exception, task: Task) -> ErrorEscalation:
@@ -240,20 +279,32 @@ class LLMAgent(BaseAgent):
                 response.prompt_tokens,
                 response.completion_tokens,
             )
-            self.context_window.append("assistant", _assistant_transcript(response))
             if response.tool_calls:
-                for call in response.tool_calls:
-                    result = await self._invoke_tool(call.name, call.arguments)
+                calls: list[dict[str, Any]] = [
+                    {
+                        "id": call.id or f"call_{index + 1}",
+                        "name": call.name,
+                        "arguments": call.arguments,
+                    }
+                    for index, call in enumerate(response.tool_calls)
+                ]
+                self.context_window.append("assistant", response.content or "", tool_calls=calls)
+                for call in calls:
+                    result = await self._invoke_tool(call["name"], call["arguments"])
                     self.context_window.append(
-                        "tool", f"[{call.name}] {result.output or result.error}"
+                        "tool",
+                        f"[{call['name']}] {result.output or result.error}",
+                        tool_call_id=call["id"],
+                        tool_name=call["name"],
                     )
                 continue
+            self.context_window.append("assistant", response.content or "")
             self._maybe_compress(task.id)
             return response.content, True, None
         self._maybe_compress(task.id)
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
-    def _messages(self, task: Task, ledger: str) -> list[dict[str, str]]:
+    def _messages(self, task: Task, ledger: str) -> list[dict[str, Any]]:
         return [
             {
                 "role": "system",
@@ -309,14 +360,6 @@ async def _call_tool(tool: Tool, arguments: dict[str, Any]) -> ToolResult:
         return tool.execute(**arguments)
     except Exception as exc:
         return ToolResult(success=False, error=f"tool crashed: {exc}")
-
-
-def _assistant_transcript(response: ModelResponse) -> str:
-    text = response.content or ""
-    if response.tool_calls:
-        calls = ", ".join(f"{c.name}({json.dumps(c.arguments)})" for c in response.tool_calls)
-        text = f"{text}\n[calls: {calls}]".strip()
-    return text
 
 
 def _classify_error(error: Exception) -> Severity:

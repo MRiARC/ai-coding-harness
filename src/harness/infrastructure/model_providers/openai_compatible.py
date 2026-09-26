@@ -29,7 +29,10 @@ class OpenAICompatibleProvider(ModelProvider):
 
     Tool calling uses the OpenAI function-calling format. Text-protocol
     fallback for models without native tool calls is the agent loop's job,
-    not the transport's.
+    not the transport's. Incoming messages are provider-neutral (flat
+    `tool_calls` with dict arguments); `_wire_messages` projects them onto
+    the OpenAI schema (assistant `tool_calls` with JSON-string arguments,
+    `tool_call_id` on tool messages) so strict endpoints accept turn 2+.
     """
 
     DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -43,12 +46,48 @@ class OpenAICompatibleProvider(ModelProvider):
     def _headers(self, api_key: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
+    @staticmethod
+    def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Project neutral messages onto the OpenAI chat-completions schema."""
+        wire: list[dict[str, Any]] = []
+        for message in messages:
+            role = message.get("role", "")
+            if role == "assistant" and message.get("tool_calls"):
+                wire.append(
+                    {
+                        "role": "assistant",
+                        "content": str(message.get("content") or ""),
+                        "tool_calls": [
+                            {
+                                "id": call.get("id", ""),
+                                "type": "function",
+                                "function": {
+                                    "name": call.get("name", ""),
+                                    "arguments": json.dumps(call.get("arguments") or {}),
+                                },
+                            }
+                            for call in message["tool_calls"]
+                        ],
+                    }
+                )
+            elif role == "tool":
+                wire.append(
+                    {
+                        "role": "tool",
+                        "content": str(message.get("content") or ""),
+                        "tool_call_id": str(message.get("tool_call_id") or ""),
+                    }
+                )
+            else:
+                wire.append({"role": role, "content": str(message.get("content") or "")})
+        return wire
+
     def _payload(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self._config.name,
-            "messages": messages,
+            "messages": self._wire_messages(messages),
             "temperature": self._config.temperature,
             "max_tokens": self._config.max_tokens,
         }
