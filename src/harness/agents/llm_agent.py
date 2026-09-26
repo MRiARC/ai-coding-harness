@@ -43,6 +43,28 @@ class StructuredOutputError(Exception):
     """The model's reply could not be parsed as the required JSON structure."""
 
 
+def compose_task_prompt(task: Task) -> str:
+    """Full task brief for a specialist (audit §9).
+
+    Planning output must reach execution: the description is joined by the
+    Architect's acceptance criteria, the expected files, the required tools,
+    and any Manager guidance attached to the task. Long sections are capped
+    (observation compression, improvements §2.2).
+    """
+    sections = [f"TASK: {task.title}", task.description.strip()]
+    if task.acceptance_criteria:
+        criteria = "\n".join(f"- {c[:200]}" for c in task.acceptance_criteria[:10])
+        sections.append(f"ACCEPTANCE CRITERIA:\n{criteria}")
+    if task.files:
+        sections.append("EXPECTED FILES: " + ", ".join(task.files[:12]))
+    if task.required_tools:
+        sections.append("REQUIRED TOOLS: " + ", ".join(task.required_tools[:12]))
+    guidance = task.metadata.get("guidance")
+    if guidance:
+        sections.append(f"MANAGER GUIDANCE: {str(guidance)[:600]}")
+    return "\n\n".join(sections)
+
+
 def extract_json(text: str) -> dict[str, Any]:
     """Pull the first JSON object out of a model reply.
 
@@ -194,9 +216,11 @@ class LLMAgent(BaseAgent):
     async def execute_task(self, task: Task) -> TaskResult:
         """Run the tool loop until the model stops calling tools or limits hit."""
         self._active_task = task.id
-        self.store.append_turn(
-            self.agent_id, task.id, "user", f"TASK: {task.title}\n{task.description}"
-        )
+        # Rebind the window to *this* task: agents are reusable, and a stale
+        # window would split the conversation across task ids or hide the
+        # task text from the first model call (audit §10).
+        self.context_window = StoreWindow(self.store, self.agent_id, task.id)
+        self.context_window.append("user", compose_task_prompt(task))
         try:
             summary, success, error = await self._loop(task)
         except BudgetExhausted:
