@@ -325,7 +325,8 @@ async def test_tool_alias_resolution(store, fake_model_config) -> None:
     result = await agent.execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
-    assert any("[read_file]" in t.content for t in window.recent)
+    tool_turns = [t for t in window.recent if '"tool_call_id"' in t.content]
+    assert tool_turns and '"name": "read_file"' in tool_turns[0].content
 
 
 async def test_unknown_tool_error_lists_available(store, fake_model_config) -> None:
@@ -340,3 +341,13 @@ async def test_unknown_tool_error_lists_available(store, fake_model_config) -> N
     await agent.execute_task(TASK)
     window = store.load_agent_context("impl-1", "t-1")
     assert any("available: echo_tool" in t.content for t in window.recent)
+
+
+def test_parse_envelope_invalid_json_falls_back_to_plain(store) -> None:
+    """A plain reply that happens to start with '{' must not crash the rebuild."""
+    window = StoreWindow(store, "a-1", "t-env")
+    window.append("assistant", "{not valid json but it is the model's words")
+    messages = window.as_messages()
+    assert messages == [
+        {"role": "assistant", "content": "{not valid json but it is the model's words"}
+    ]
