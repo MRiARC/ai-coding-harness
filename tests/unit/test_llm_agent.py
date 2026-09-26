@@ -120,7 +120,7 @@ def _json_block() -> str:
 
 
 async def test_unknown_tool_becomes_tool_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("nope"), _text("done")])
+    provider = FakeProvider(fake_model_config, responses=[_call("nope"), _text("TASK_COMPLETE: done")])
     result = await _agent(store, provider).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -128,7 +128,7 @@ async def test_unknown_tool_becomes_tool_result(store, fake_model_config) -> Non
 
 
 async def test_invalid_arguments_become_tool_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("echo_tool"), _text("done")])
+    provider = FakeProvider(fake_model_config, responses=[_call("echo_tool"), _text("TASK_COMPLETE: done")])
     result = await _agent(store, provider).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -137,7 +137,7 @@ async def test_invalid_arguments_become_tool_result(store, fake_model_config) ->
 
 async def test_permission_denial_at_low_tier(store, fake_model_config) -> None:
     provider = FakeProvider(
-        fake_model_config, responses=[_call("writer_tool", content="x"), _text("done")]
+        fake_model_config, responses=[_call("writer_tool", content="x"), _text("TASK_COMPLETE: done")]
     )
     agent = _agent(store, provider, model_tier=1)
     await agent.execute_task(TASK)
@@ -146,7 +146,7 @@ async def test_permission_denial_at_low_tier(store, fake_model_config) -> None:
 
 
 async def test_preset_tier_limits_schemas(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_text("done")])
+    provider = FakeProvider(fake_model_config, responses=[_text("TASK_COMPLETE: done")])
     agent = _agent(store, provider, role="locator", tools=[EchoTool(), WriterTool()])
     await agent.execute_task(TASK)
     sent = provider.calls[0]["tools"]
@@ -154,7 +154,7 @@ async def test_preset_tier_limits_schemas(store, fake_model_config) -> None:
 
 
 async def test_crashing_tool_returns_error_result(store, fake_model_config) -> None:
-    provider = FakeProvider(fake_model_config, responses=[_call("crash_tool"), _text("done")])
+    provider = FakeProvider(fake_model_config, responses=[_call("crash_tool"), _text("TASK_COMPLETE: done")])
     result = await _agent(store, provider, tools=[CrashTool()]).execute_task(TASK)
     assert result.success
     window = store.load_agent_context("impl-1", "t-1")
@@ -273,3 +273,29 @@ def test_store_window_roundtrip(store) -> None:
         {"role": "user", "content": "hi"},
         {"role": "assistant", "content": "ho"},
     ]
+
+
+async def test_unmarked_finish_triggers_nudge_then_accepts(store, fake_model_config) -> None:
+    """A reply with no tool calls and no marker is a pause, not a finish."""
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _text("Let me look around first."),
+            _text("I think I understand the issue now."),
+            _text("TASK_COMPLETE: actually did the work"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool()])
+    result = await agent.execute_task(TASK)
+    assert result.success and "actually did the work" in result.summary
+    window = store.load_agent_context("impl-1", "t-1")
+    nudges = [t for t in window.recent if "You are not finished" in t.content]
+    assert len(nudges) == 2  # bounded nudging
+
+
+async def test_unmarked_finishes_exhaust_then_best_effort(store, fake_model_config) -> None:
+    provider = FakeProvider(fake_model_config, responses=[_text("thinking") for _ in range(5)])
+    agent = _agent(store, provider, tools=[EchoTool()], max_steps=6)
+    result = await agent.execute_task(TASK)
+    assert result.success  # gates, not the agent's claim, decide the truth
+    assert "thinking" in result.summary

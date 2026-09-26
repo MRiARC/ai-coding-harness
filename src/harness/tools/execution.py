@@ -45,11 +45,17 @@ def _limits_preexec() -> None:  # pragma: no cover - runs in child process
 
 def detect_test_runner(repo_root: Path) -> tuple[str, list[str]]:
     """Detect (name, command) for the repository's test runner."""
-    if (
+    has_pytest_config = (
         (repo_root / "pyproject.toml").exists()
         or (repo_root / "pytest.ini").exists()
         or (repo_root / "setup.cfg").exists()
-    ):
+    )
+    has_bare_tests = any(
+        path.name.startswith("test_") or path.name.endswith("_test.py")
+        for path in repo_root.rglob("*.py")
+        if ".venv" not in path.parts and "__pycache__" not in path.parts
+    )
+    if has_pytest_config or has_bare_tests:
         return "pytest", [sys.executable, "-m", "pytest", "-q", "--no-header"]
     if (repo_root / "package.json").exists():
         return "npm", ["npm", "test", "--silent"]

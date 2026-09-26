@@ -35,6 +35,11 @@ logger = get_logger(__name__)
 
 DEFAULT_KEEP_RECENT = 24
 DEFAULT_MAX_STEPS = 16
+MAX_UNMARKED_NUDGES = 2
+_NUDGE = (
+    "You are not finished: use the available tools to complete the task now. "
+    f"Reply with '{FINAL_MARKER}: <summary>' ONLY when done."
+)
 
 _STEP_LIMIT_ERROR = "step limit reached before the agent finished"
 
@@ -179,7 +184,7 @@ class LLMAgent(BaseAgent):
         restated before giving up (feeds the recovery ladder as evidence).
         """
         self.context_window.append("user", user_prompt)
-        reply = await self._generate(instruction)
+        reply = await self._generate(instruction, use_tools=False)
         try:
             return extract_json(reply.content)
         except StructuredOutputError:
@@ -188,19 +193,22 @@ class LLMAgent(BaseAgent):
                 f"Schema: {schema_hint}\nReply with ONLY the JSON object."
             )
             self.context_window.append("user", repair)
-            reply = await self._generate(instruction)
+            reply = await self._generate(instruction, use_tools=False)
             parsed = extract_json(reply.content)
             self.context_window.append("assistant", "recovered with valid JSON")
             return parsed
 
-    async def _generate(self, instruction: str) -> ModelResponse:
+    async def _generate(self, instruction: str, use_tools: bool = True) -> ModelResponse:
         self.governor.check()
+        # Structured (planning/review) calls must not offer tools: models with
+        # tool access will answer "I need to read the files first" with a tool
+        # call instead of the required JSON.
         response = await self.provider.generate(
             [
                 {"role": "system", "content": system_prompt(self.role, extra=instruction)},
                 *self.context_window.as_messages(),
             ],
-            self._tool_schemas(),
+            self._tool_schemas() if use_tools else None,
         )
         self.governor.record(
             self.agent_id, self.provider.model, response.prompt_tokens, response.completion_tokens
@@ -229,6 +237,7 @@ class LLMAgent(BaseAgent):
     async def _loop(self, task: Task) -> tuple[str, bool, str | None]:
         context = self.store.load_agent_context(self.agent_id, task.id)
         ledger = context.summary if context.summary else ""
+        unmarked_finishes = 0
         for _step in range(self.max_steps):
             self.governor.check()
             response = await self.provider.generate(
@@ -242,14 +251,26 @@ class LLMAgent(BaseAgent):
             )
             self.context_window.append("assistant", _assistant_transcript(response))
             if response.tool_calls:
+                unmarked_finishes = 0
                 for call in response.tool_calls:
                     result = await self._invoke_tool(call.name, call.arguments)
                     self.context_window.append(
                         "tool", f"[{call.name}] {result.output or result.error}"
                     )
                 continue
+            content = response.content or ""
+            if FINAL_MARKER in content:
+                self._maybe_compress(task.id)
+                return content, True, None
+            # A reply with neither tool calls nor the marker is the model
+            # pausing, not finishing: nudge it back to work (bounded), then
+            # accept its last word - the verification gates judge the truth.
+            if unmarked_finishes < MAX_UNMARKED_NUDGES:
+                unmarked_finishes += 1
+                self.context_window.append("user", _NUDGE)
+                continue
             self._maybe_compress(task.id)
-            return response.content, True, None
+            return content, True, None
         self._maybe_compress(task.id)
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
