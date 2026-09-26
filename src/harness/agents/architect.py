@@ -125,19 +125,29 @@ class ArchitectAgent(LLMAgent):
         self.store.save_global("plan", plan.model_dump())
         return plan
 
-    async def review(self, diff: str, plan: Plan) -> ReviewVerdict:
-        """Judge the aggregate diff against the plan's acceptance criteria."""
-        criteria = "\n".join(
-            f"- {st.id}: {'; '.join(st.acceptance_criteria) or st.title}" for st in plan.subtasks
-        )
-        prompt = (
-            "Review this diff against the acceptance criteria. "
-            f"Reply with JSON only.\nCRITERIA:\n{criteria}\nDIFF:\n{diff[:12000]}"
-        )
-        data = await self.structured_call(
-            "Reply with JSON matching: " + VERDICT_SCHEMA, prompt, VERDICT_SCHEMA
-        )
-        return ReviewVerdict.model_validate(data)
+    async def review(self, diff: str, plan: Plan, evidence: str = "") -> ReviewVerdict:
+        """Judge the diff against acceptance criteria + verification evidence.
+
+        Never silently truncates (audit §20): the diff is split into per-file
+        chunks; each gets a structured call, capped at _MAX_REVIEW_CHUNKS, and
+        files beyond the budget are named in the verdict so the gate fails
+        honestly rather than reviewing a blind spot.
+        """
+        context = _ReviewContext(plan, evidence)
+        chunks, unreviewed = split_diff_chunks(diff)
+        verdicts: list[ReviewVerdict] = []
+        for index, chunk in enumerate(chunks):
+            data = await self.structured_call(
+                "Reply with JSON matching: " + VERDICT_SCHEMA,
+                context.chunk_prompt(chunk, index, len(chunks)),
+                VERDICT_SCHEMA,
+            )
+            verdicts.append(ReviewVerdict.model_validate(data))
+        if not chunks:
+            verdicts.append(
+                ReviewVerdict(approved=True, issues=[], summary="no changed files to review")
+            )
+        return _merge_verdicts(verdicts, unreviewed)
 
     async def reframe(self, task: Task, escalation_message: str) -> Task:
         """Level-3 recovery: restate a task the team could not complete."""
@@ -158,6 +168,83 @@ class ArchitectAgent(LLMAgent):
                 "metadata": {**task.metadata, "reframed": True},
             }
         )
+
+
+_REVIEW_CHUNK_CHARS = 12_000
+_MAX_REVIEW_CHUNKS = 5
+
+
+def split_diff_chunks(
+    diff: str, max_chars: int = _REVIEW_CHUNK_CHARS
+) -> tuple[list[str], list[str]]:
+    """Split a unified diff into per-file chunks under `max_chars`.
+
+    Returns (chunks, unreviewed_files). Never silently drops content
+    (audit §20): files beyond the caller's chunk budget are returned in
+    `unreviewed_files` so the final gate can fail honestly instead of
+    reviewing a truncated artifact.
+    """
+    if not diff.strip():
+        return [], []
+    files: list[str] = []
+    current: list[str] = []
+    for line in diff.splitlines(keepends=True):
+        if line.startswith("diff --git ") and current:
+            files.append("".join(current))
+            current = []
+        current.append(line)
+    if current:
+        files.append("".join(current))
+
+    chunks: list[str] = []
+    buffer: list[str] = []
+    size = 0
+    for file_diff in files:
+        if size + len(file_diff) > max_chars and buffer:
+            chunks.append("".join(buffer))
+            buffer, size = [], 0
+        buffer.append(file_diff)
+        size += len(file_diff)
+    if buffer:
+        chunks.append("".join(buffer))
+
+    if len(chunks) <= _MAX_REVIEW_CHUNKS:
+        return chunks, []
+    dropped = "".join(chunks[_MAX_REVIEW_CHUNKS:])
+    unreviewed = [
+        line[6:].strip()
+        for line in dropped.splitlines()
+        if line.startswith("+++ b/") and line[6:].strip() != "/dev/null"
+    ]
+    return chunks[:_MAX_REVIEW_CHUNKS], [name for name in unreviewed if name]
+
+
+class _ReviewContext:
+    """Shared prompt preamble for one review pass (criteria + evidence)."""
+
+    def __init__(self, plan: Plan, evidence: str) -> None:
+        criteria = "\n".join(
+            f"- {st.id}: {'; '.join(st.acceptance_criteria) or st.title}" for st in plan.subtasks
+        )
+        self.preamble = f"CRITERIA:\n{criteria or '- (none)'}\n\nVERIFICATION EVIDENCE:\n{evidence or '(none collected)'}"
+
+    def chunk_prompt(self, chunk: str, index: int, total: int) -> str:
+        return (
+            f"Review chunk {index + 1}/{total} of this diff against the "
+            "acceptance criteria and evidence. Reply with JSON only.\n"
+            f"{self.preamble}\n\nDIFF CHUNK:\n{chunk}"
+        )
+
+
+def _merge_verdicts(verdicts: list[ReviewVerdict], unreviewed_files: list[str]) -> ReviewVerdict:
+    issues: list[str] = []
+    for verdict in verdicts:
+        issues.extend(verdict.issues)
+    approved = all(v.approved for v in verdicts) and not unreviewed_files
+    if unreviewed_files:
+        issues.append("diff not fully reviewed (over chunk budget): " + ", ".join(unreviewed_files))
+    summary = "; ".join(v.summary for v in verdicts if v.summary)
+    return ReviewVerdict(approved=approved, issues=issues, summary=summary)
 
 
 def build_architect(
