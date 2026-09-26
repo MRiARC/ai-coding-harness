@@ -31,3 +31,4 @@ logs/
 # Go build artifacts
 gateway/gateway
 gateway/cmd/tui/tui-go
+bin/
