@@ -10,7 +10,7 @@
 ```bash
 export AI_API_KEY="<PROVIDED_API_KEY>"   # credential is supplied at runtime, never committed
 make setup    # create .venv, install pinned dependencies, verify environment
-make run      # launch the harness (doctor: validates runtime until orchestration lands)
+make run      # launch the harness: TUI cockpit on a TTY, headless health summary otherwise
 make test     # offline test suite with coverage
 make lint     # ruff (black/flake8-compatible) + mypy type check
 ```

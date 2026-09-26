@@ -39,4 +39,9 @@ model calls go through `FakeProvider`, GitHub calls through
    injection, `ContextStore` backends, `GitHubService` client injection).
 3. Coverage stays at 100%: `pytest --cov-report=term-missing` shows any gap;
    unreachable code must carry an explicit `# pragma: no cover` with a reason,
-   never a silent exclusion.
+   never a silent exclusion. The one standing exclusion is the Textual app
+   lifecycle in `ui/tui.py` (its headless `run_test()` is not reliable across
+   platforms); all cockpit rendering logic lives in pure functions that the
+   suite covers.
+4. Never invoke `asyncio.run` inside async code, and never chain verification
+   and `git commit` in one shell command - both have bitten us.
