@@ -123,6 +123,12 @@ class AgentConfig(BaseModel):
         "code-review",
     ] = "implementer"
     model: str = Field(description="Key into the top-level `models` mapping.")
+    knowledge: bool = Field(
+        default=True, description="Inject the persona skill card into the system prompt (#78)."
+    )
+    knowledge_max_chars: int = Field(
+        default=1500, ge=200, le=8000, description="Skill-card cap in characters."
+    )
     model_tier: int = Field(
         default=3, ge=1, le=4, description="Capability tier used by tool permission gating."
     )

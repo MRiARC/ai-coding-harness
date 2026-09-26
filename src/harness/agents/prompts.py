@@ -190,11 +190,18 @@ ROLE_PRESETS: dict[str, RolePreset] = {
 }
 
 
-def system_prompt(role: str, fact_ledger: str = "", extra: str = "") -> str:
-    """Compose the system prompt: role focus + ledger + task-specific extra."""
+def system_prompt(
+    role: str,
+    fact_ledger: str = "",
+    extra: str = "",
+    knowledge: str = "",
+) -> str:
+    """Compose the system prompt: role focus + persona knowledge + ledger + extra."""
     preset = ROLE_PRESETS.get(role)
     focus = preset.prompt if preset else f"You are a {role} agent."
     parts = [focus]
+    if knowledge:
+        parts.append(knowledge)
     if fact_ledger:
         parts.append(f"Fact ledger (decisions and dead ends so far):\n{fact_ledger}")
     if extra:

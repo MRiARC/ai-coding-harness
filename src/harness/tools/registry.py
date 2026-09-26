@@ -18,6 +18,7 @@ from harness.tools.filesystem import (
     WriteFileTool,
 )
 from harness.tools.graph import RepoGraphTool
+from harness.tools.knowledge import KnowledgeSearchTool
 from harness.tools.vcs import GitAddTool, GitBranchTool, GitDiffTool, GitLogTool, GitStatusTool
 
 
@@ -27,6 +28,7 @@ def build_default_tools(repo_root: Path) -> list[Tool]:
     return [
         # Tier 1 - basic operations (issue 3.1)
         ReadFileTool(root),
+        KnowledgeSearchTool(),
         ListDirTool(root),
         SearchTextTool(root),
         GitStatusTool(root),
@@ -49,6 +51,7 @@ def build_default_tools(repo_root: Path) -> list[Tool]:
 
 TOOL_NAMES: dict[str, int] = {
     "filesystem_read": 1,
+    "search_knowledge": 1,
     "filesystem_list": 1,
     "search_text": 1,
     "glob_files": 1,
