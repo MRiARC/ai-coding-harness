@@ -62,11 +62,11 @@ class BaseAgent(ABC):
         self.context_window = context_window
 
     @abstractmethod
-    def execute_task(self, task: Task) -> TaskResult:
+    async def execute_task(self, task: Task) -> TaskResult:
         """Run a task to completion (including the agent's internal loop)."""
 
     @abstractmethod
-    def handle_error(self, error: Exception, task: Task) -> ErrorEscalation:
+    async def handle_error(self, error: Exception, task: Task) -> ErrorEscalation:
         """Classify a failure into an `ErrorEscalation` for the recovery ladder."""
 
     @abstractmethod
@@ -89,13 +89,13 @@ class BaseManager(BaseAgent):
     """
 
     @abstractmethod
-    def assign_task(self, task: Task, agent_id: str) -> None:
+    async def assign_task(self, task: Task, agent_id: str) -> None:
         """Route `task` to the named specialist."""
 
     @abstractmethod
-    def monitor_progress(self) -> list[StatusUpdate]:
+    async def monitor_progress(self) -> list[StatusUpdate]:
         """Collect recent status updates from assigned specialists."""
 
     @abstractmethod
-    def handle_escalation(self, escalation: ErrorEscalation) -> StatusUpdate:
+    async def handle_escalation(self, escalation: ErrorEscalation) -> StatusUpdate:
         """Decide and execute the response to a specialist's escalation."""
