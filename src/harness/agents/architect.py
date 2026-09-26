@@ -29,7 +29,8 @@ PLAN_SCHEMA = (
     '"subtasks": [{"id": str, "title": str, "description": str, '
     '"specialty": str, "complexity": int, "files": [str], '
     '"acceptance_criteria": [str], "depends_on": [str]}], '
-    '"risks": [str], "needs_collaboration": bool}'
+    '"risks": [str], "needs_collaboration": bool, '
+    '"reproduction_test": str, "allow_test_edits": bool}'
 )
 VERDICT_SCHEMA = '{"approved": bool, "issues": [str], "summary": str}'
 
@@ -78,6 +79,14 @@ class Plan(BaseModel):
     subtasks: list[SubTask] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     needs_collaboration: bool = False
+    reproduction_test: str = Field(
+        default="",
+        description="Pytest node id that fails before the patch and must pass after.",
+    )
+    allow_test_edits: bool = Field(
+        default=False,
+        description="Explicit plan-level allowance for modifying test files.",
+    )
 
 
 class ReviewVerdict(BaseModel):

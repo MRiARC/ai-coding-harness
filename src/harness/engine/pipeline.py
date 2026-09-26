@@ -40,8 +40,10 @@ from harness.engine.recovery import Executor, RecoveryLadder, Rerouter
 from harness.monitoring.metrics import MetricsCollector
 from harness.security.audit import AuditLog
 from harness.security.input_guard import detect_prompt_injection
+from harness.tools.execution import RunTestsTool, detect_test_runner
 from harness.tools.filesystem import summarize_repository
 from harness.tools.registry import build_default_tools
+from harness.verification.baseline import Baseline, capture_baseline
 from harness.verification.pipeline import VerificationPipeline, stage_report
 
 _ROUTABLE_ERROR_TYPES = {
@@ -184,6 +186,21 @@ class HarnessPipeline:
             {"event": "architect.plan", "run_id": run_id, "subtasks": [s.id for s in plan.subtasks]}
         )
 
+        # Reproduction-first baseline (improvements §1.1): run the target
+        # suite BEFORE any specialist touches a file.
+        baseline: Baseline | None = None
+        if detect_test_runner(self._repo_root)[0] != "none":
+            run_tool = RunTestsTool(self._repo_root)
+            baseline = await capture_baseline(self._repo_root, run_tool, plan.reproduction_test)
+            pack.trace(
+                {
+                    "event": "baseline.captured",
+                    "run_id": run_id,
+                    "runnable": baseline.runnable,
+                    "pre_existing_failures": len(baseline.failed),
+                }
+            )
+
         task_results: list[TaskResult] = []
         metrics.stage_started("specialists")
         if self._manager is not None and plan.subtasks:
@@ -194,12 +211,14 @@ class HarnessPipeline:
 
         metrics.stage_started("verification")
         diff = self._working_diff()
-        verification = VerificationPipeline(self._repo_root)
+        verification = VerificationPipeline(self._repo_root, baseline)
         stage_results = await verification.run(diff, plan, architect)
         metrics.stage_finished("verification")
         pack.patch(diff)
         pack.test_report(stage_report(stage_results))
         pack.token_report(metrics.report())
+        if baseline is not None:
+            pack.baseline_report(baseline.to_report())
         overall = all(r.passed for r in stage_results if r.blocking) and all(
             r.success for r in task_results
         )

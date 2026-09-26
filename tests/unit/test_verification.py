@@ -85,11 +85,11 @@ async def test_pipeline_all_pass(repo, fake_model_config) -> None:
     diff = ""  # no changes: self-check trivially passes, review skipped files
     results = await _pipeline(repo).run(diff, plan, architect)
     by_name = {r.name: r for r in results}
-    assert by_name["1-self-check"].passed
-    assert by_name["2-local-tests"].passed
-    assert by_name["3-code-review"].passed and not by_name["3-code-review"].blocking
-    assert by_name["4-security"].passed
-    assert by_name["5-final-review"].passed
+    assert by_name["2-self-check"].passed
+    assert by_name["3-local-tests"].passed
+    assert by_name["4-code-review"].passed and not by_name["4-code-review"].blocking
+    assert by_name["5-security"].passed
+    assert by_name["6-final-review"].passed
     assert "VERIFIED" in stage_report(results)
 
 
@@ -97,7 +97,11 @@ async def test_pipeline_blocks_on_failed_tests(repo) -> None:
     (repo / "test_bad.py").write_text("def test_bad():\n    assert False\n")
     results = await _pipeline(repo).run(diff="", plan=None, architect=None)
     names = [r.name for r in results]
-    assert names == ["1-self-check", "2-local-tests"]  # blocking failure stops the run
+    assert names == [
+        "1-integrity",
+        "2-self-check",
+        "3-local-tests",
+    ]  # blocking failure stops the run
     assert not results[-1].passed
 
 
@@ -128,7 +132,7 @@ async def test_pipeline_security_stage_blocks(repo) -> None:
         ["git", "-C", str(repo), "diff", "HEAD"], capture_output=True, text=True, check=True
     ).stdout
     results = await _pipeline(repo).run(diff, plan=None, architect=None)
-    security = {r.name: r for r in results}["4-security"]
+    security = {r.name: r for r in results}["5-security"]
     assert not security.passed and "secret detected" in security.detail
 
 

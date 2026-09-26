@@ -25,6 +25,10 @@ class EvidencePack:
         target.write_text(content, encoding="utf-8")
         return target
 
+    def baseline_report(self, data: dict[str, Any]) -> Path:
+        """Persist the pre-patch baseline snapshot (reproduction-first)."""
+        return self._write("baseline.json", json.dumps(data, indent=2, sort_keys=True))
+
     def trace(self, event: dict[str, Any]) -> None:
         """Append one JSONL trace event (the audit spine of the run)."""
         with (self.path / "trace.jsonl").open("a", encoding="utf-8") as handle:
