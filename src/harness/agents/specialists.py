@@ -58,6 +58,8 @@ def build_agent(
     task_id: str = "ad-hoc",
     max_steps: int = 16,
     stale_tool_results: int = 6,
+    knowledge_enabled: bool = True,
+    knowledge_max_chars: int = 1500,
 ) -> LLMAgent:
     """Instantiate any registered role with its preset defaults applied."""
     if role not in ROLE_PRESETS:
@@ -75,5 +77,7 @@ def build_agent(
         role=role,
         model_tier=model_tier if model_tier is not None else min(4, preset.max_tool_tier.value + 1),
         max_steps=max_steps,
+        knowledge_enabled=knowledge_enabled,
+        knowledge_max_chars=knowledge_max_chars,
         stale_tool_results=stale_tool_results,
     )

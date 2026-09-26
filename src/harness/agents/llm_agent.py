@@ -35,6 +35,7 @@ from harness.infrastructure.model_providers.capability import (
     render_tool_manual,
     strip_think_blocks,
 )
+from harness.knowledge.registry import knowledge_section
 from harness.orchestration.messages import AgentStatus, ErrorEscalation, Severity, StatusUpdate
 from harness.tools.base import AsyncExecutableTool, Tool, ToolResult, ToolTier
 
@@ -254,6 +255,8 @@ class LLMAgent(BaseAgent):
         max_steps: int = DEFAULT_MAX_STEPS,
         keep_recent: int = DEFAULT_KEEP_RECENT,
         stale_tool_results: int = DEFAULT_STALE_TOOL_RESULTS,
+        knowledge_enabled: bool = True,
+        knowledge_max_chars: int = 1500,
     ) -> None:
         super().__init__(agent_id, model_config, tools, context_window)
         self.provider = provider
@@ -266,6 +269,8 @@ class LLMAgent(BaseAgent):
         self.max_steps = max_steps
         self.keep_recent = keep_recent
         self.stale_tool_results = stale_tool_results
+        self.knowledge_enabled = knowledge_enabled
+        self.knowledge_max_chars = knowledge_max_chars
         self._active_task: str | None = None
         self._attempts: dict[str, int] = {}
         self._capabilities: ModelCapabilities | None = None
@@ -372,7 +377,14 @@ class LLMAgent(BaseAgent):
         self.governor.reserve(_estimate_tokens(self.context_window.as_messages()))
         response = await self.provider.generate(
             [
-                {"role": "system", "content": system_prompt(self.role, extra=instruction)},
+                {
+                    "role": "system",
+                    "content": system_prompt(
+                        self.role,
+                        knowledge=self._persona_knowledge(),
+                        extra=instruction,
+                    ),
+                },
                 *self.context_window.as_messages(),
             ],
             self._tool_schemas() if use_tools else None,
@@ -477,6 +489,12 @@ class LLMAgent(BaseAgent):
         self._maybe_compress(task.id)
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
+    def _persona_knowledge(self) -> str:
+        """Bounded skill card for this role (#78); empty when disabled."""
+        if not self.knowledge_enabled:
+            return ""
+        return knowledge_section(self.role, max_chars=self.knowledge_max_chars)
+
     def _messages(self, task: Task, ledger: str, use_native: bool = True) -> list[dict[str, Any]]:
         mode_directive = _MODE_DIRECTIVES.get(self.governor.mode(), "")
         tool_manual = "" if use_native else render_tool_manual(self._tool_schemas())
@@ -486,6 +504,7 @@ class LLMAgent(BaseAgent):
                 "content": system_prompt(
                     self.role,
                     fact_ledger=ledger,
+                    knowledge=self._persona_knowledge(),
                     extra=(
                         f"Working repo task id: {task.id}. "
                         f"End with {FINAL_MARKER} when done.{mode_directive}"
