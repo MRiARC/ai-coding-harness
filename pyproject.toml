@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1"]
+platform = ["fastapi>=0.111", "uvicorn>=0.30", "redis>=5.0"]
 dev = [
     "pytest-asyncio>=0.24",
     "pytest>=8.2",

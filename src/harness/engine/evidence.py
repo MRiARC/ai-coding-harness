@@ -9,16 +9,22 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 class EvidencePack:
-    """Filesystem writer for one run's artifacts."""
+    """Filesystem writer for one run's artifacts.
 
-    def __init__(self, results_root: Path, run_id: str) -> None:
+    `event_sink` (optional) receives every traced event — the platform
+    layer (P3, issue #72) uses it to publish to Redis pub/sub.
+    """
+
+    def __init__(self, results_root: Path, run_id: str,
+                 event_sink: "Callable[[dict], None] | None" = None) -> None:
         self.run_id = run_id
         self.path = Path(results_root) / run_id
         self.path.mkdir(parents=True, exist_ok=True)
+        self._event_sink = event_sink
 
     def _write(self, name: str, content: str) -> Path:
         target = self.path / name
@@ -33,6 +39,11 @@ class EvidencePack:
         """Append one JSONL trace event (the audit spine of the run)."""
         with (self.path / "trace.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, sort_keys=True, default=str) + "\n")
+        if self._event_sink is not None:
+            try:
+                self._event_sink(event)
+            except Exception:  # noqa: BLE001 - the sink must never break a run
+                pass
 
     def patch(self, diff: str) -> Path:
         return self._write("patch.diff", diff)
