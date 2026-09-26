@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from harness.agents.task import Task, TaskResult
-from harness.engine.budget import BudgetExhausted
+from harness.engine.budget import BudgetExhausted, GovernorMode
 from harness.infrastructure.context_store import ContextStore
 from harness.infrastructure.logging import get_logger
 from harness.orchestration.messages import ErrorEscalation, Severity
@@ -58,6 +58,7 @@ class RecoveryLadder:
         *,
         reroute: Rerouter | None = None,
         on_event: Tracer | None = None,
+        governor: Any | None = None,
     ) -> None:
         self._manager = manager
         self._architect = architect
@@ -65,6 +66,7 @@ class RecoveryLadder:
         self._policy = policy or AttemptPolicy()
         self._reroute = reroute
         self._on_event = on_event
+        self._governor = governor
 
     def _trace(self, event: dict[str, Any]) -> None:
         if self._on_event is not None:
@@ -133,7 +135,15 @@ class RecoveryLadder:
                 return last_result
             last_escalation = await classify(task, last_result)
 
-        # L3: architect reframes the task once, smaller and clearer
+        # L3: architect reframes the task once - unless the budget governor
+        # has left NORMAL (surgical mode forbids re-plans, audit §13).
+        if (
+            self._governor is not None
+            and self._governor.mode() is not GovernorMode.NORMAL
+            and self._policy.re_plan
+        ):
+            self._trace({"event": "recovery.l3_skipped_budget", "task": task.id})
+            return self._give_up(task, last_result, "re-planning suppressed by budget governor")
         for _ in range(self._policy.re_plan):
             if last_escalation is not None:
                 task = await self._architect.reframe(

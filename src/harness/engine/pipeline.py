@@ -288,6 +288,7 @@ class HarnessPipeline:
                 self._store,
                 reroute=make_reroute(agent_id),
                 on_event=pack.trace,
+                governor=governor,
             )
 
             async def classify(t: Task, r: TaskResult) -> ErrorEscalation:

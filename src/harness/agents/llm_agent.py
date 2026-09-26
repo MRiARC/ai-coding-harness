@@ -21,7 +21,7 @@ from typing import Any
 from harness.agents.base import BaseAgent, ContextWindow
 from harness.agents.prompts import FINAL_MARKER, ROLE_PRESETS, RolePreset, system_prompt
 from harness.agents.task import Task, TaskResult
-from harness.engine.budget import BudgetExhausted, BudgetGovernor
+from harness.engine.budget import BudgetExhausted, BudgetGovernor, GovernorMode
 from harness.infrastructure.context_store import ContextStore
 from harness.infrastructure.logging import get_logger
 from harness.infrastructure.model_providers import (
@@ -258,6 +258,7 @@ class LLMAgent(BaseAgent):
 
     async def _generate(self, instruction: str) -> ModelResponse:
         self.governor.check()
+        self.governor.reserve(_estimate_tokens(self.context_window.as_messages()))
         response = await self.provider.generate(
             [
                 {"role": "system", "content": system_prompt(self.role, extra=instruction)},
@@ -294,6 +295,7 @@ class LLMAgent(BaseAgent):
         ledger = context.summary if context.summary else ""
         for _step in range(self.max_steps):
             self.governor.check()
+            self.governor.reserve(_estimate_tokens(self._messages(task, ledger)))
             response = await self.provider.generate(
                 self._messages(task, ledger), self._tool_schemas()
             )
@@ -329,13 +331,17 @@ class LLMAgent(BaseAgent):
         return _STEP_LIMIT_ERROR, False, _STEP_LIMIT_ERROR
 
     def _messages(self, task: Task, ledger: str) -> list[dict[str, Any]]:
+        mode_directive = _MODE_DIRECTIVES.get(self.governor.mode(), "")
         return [
             {
                 "role": "system",
                 "content": system_prompt(
                     self.role,
                     fact_ledger=ledger,
-                    extra=f"Working repo task id: {task.id}. End with {FINAL_MARKER} when done.",
+                    extra=(
+                        f"Working repo task id: {task.id}. "
+                        f"End with {FINAL_MARKER} when done.{mode_directive}"
+                    ),
                 ),
             },
             *self.context_window.as_messages(),
@@ -386,6 +392,24 @@ async def _call_tool(tool: Tool, arguments: dict[str, Any]) -> ToolResult:
         return tool.execute(**arguments)
     except Exception as exc:
         return ToolResult(success=False, error=f"tool crashed: {exc}")
+
+
+_MODE_DIRECTIVES: dict[GovernorMode, str] = {
+    GovernorMode.NORMAL: "",
+    GovernorMode.SURGICAL: (
+        " BUDGET MODE surgical: no re-planning, minimal exploration; "
+        "work from the localization you already have."
+    ),
+    GovernorMode.FINALIZE: (
+        " BUDGET MODE finalize-only: run verification and repair "
+        "verified-failing tests only, then finish."
+    ),
+}
+
+
+def _estimate_tokens(messages: list[dict[str, Any]]) -> int:
+    """Cheap chars/4 estimate used for pre-dispatch budget reservation."""
+    return sum(len(str(message.get("content") or "")) for message in messages) // 4
 
 
 def _classify_error(error: Exception) -> Severity:
