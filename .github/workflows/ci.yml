@@ -18,7 +18,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,platform]"
       - name: Lint
         run: |
           ruff check src tests
@@ -27,3 +27,18 @@ jobs:
         run: mypy
       - name: Test
         run: pytest
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: gateway/go.sum
+      - name: Build + vet + test
+        run: |
+          cd gateway
+          go build ./...
+          go vet ./...
+          go test ./...

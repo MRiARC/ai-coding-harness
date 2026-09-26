@@ -78,11 +78,13 @@ class HarnessPipeline:
         provider: Any,
         store: Any,
         audit: AuditLog | None = None,
+        event_sink: Any = None,
     ) -> None:
         self._repo_root = Path(repo_root)
         self._config = config
         self._store = store
         self._audit = audit or AuditLog(self._repo_root / ".harness" / "audit.jsonl")
+        self._event_sink = event_sink
         self._provider = provider
         self._tools = build_default_tools(self._repo_root)
         self._agents: dict[str, Any] = {}
@@ -166,13 +168,19 @@ class HarnessPipeline:
                 self._manager.register_specialist(slot)
         self._specialist_slots = slots
 
-    async def run(self, issue_text: str, demo_mode: bool = False) -> PipelineOutcome:
+    async def run(
+        self, issue_text: str, demo_mode: bool = False, event_sink: Any = None
+    ) -> PipelineOutcome:
         run_id = uuid.uuid4().hex[:12]
         governor = BudgetGovernor(self._store, self._config.budget, run_id)
         for agent in self._agents.values():
             agent.governor = governor
         metrics = MetricsCollector(self._store, governor)
-        pack = EvidencePack(self._repo_root / self._config.run.results_dir, run_id)
+        pack = EvidencePack(
+            self._repo_root / self._config.run.results_dir,
+            run_id,
+            event_sink=event_sink or self._event_sink,
+        )
         flags = [
             f"prompt-injection pattern: {pattern}"
             for pattern in detect_prompt_injection(issue_text)
