@@ -460,38 +460,6 @@ class LLMAgent(BaseAgent):
     async def _invoke_tool(self, name: str, arguments: dict[str, Any]) -> ToolResult:
         from harness.tools.registry import TOOL_ALIASES
 
-        key = _call_signature(name, arguments)
-        if name in NON_DETERMINISTIC_TOOLS:
-            return await self._execute_tool(name, arguments, key)
-        if key in self._result_cache:
-            self._repeat_counts[key] = self._repeat_counts.get(key, 0) + 1
-            if self._repeat_counts[key] >= REPEAT_NUDGE_AFTER and self._repeat_nudges < MAX_REPEAT_NUDGES:
-                self._repeat_nudges += 1
-                self.context_window.append("user", _REPEAT_NUDGE)
-            cached_args, cached = self._result_cache[key]
-            note = "already executed; identical result (see earlier)"
-            output = f"{cached.output}\n[{note}]" if cached.output else f"[{note}] {cached.error or ''}"
-            return ToolResult(success=cached.success, output=output,
-                              error=cached.error, data=dict(cached.data))
-        result = await self._execute_tool(name, arguments, key)
-        self._result_cache[key] = (dict(arguments), result)
-        if name in MUTATING_TOOLS and result.success:
-            self._invalidate_for_path(arguments.get("path"))
-        return result
-
-    def _invalidate_for_path(self, path: Any) -> None:
-        """A successful edit invalidates cached reads of the edited path."""
-        if not path:
-            return
-        stale = [k for k, (args, _) in self._result_cache.items()
-                 if isinstance(args, dict) and args.get("path") == path]
-        for k in stale:
-            del self._result_cache[k]
-        if stale:
-            logger.info("tool cache invalidated", path=str(path), entries=len(stale))
-
-    async def _execute_tool(self, name: str, arguments: dict[str, Any],
-                            key: str) -> ToolResult:
         tool = next((t for t in self.tools if t.name == name), None)
         if tool is None and name in TOOL_ALIASES:
             # Models call tools by natural names (read_file, grep, ...);
