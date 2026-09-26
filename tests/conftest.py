@@ -84,10 +84,22 @@ def sample_task() -> Task:
 
 @pytest.fixture
 def git_repo(tmp_path: Path) -> GitService:
-    """An initialized scratch repository (sync setup; async ops in tests)."""
+    """A scratch repository directory (call `init` or use `git_ready`)."""
     repo = GitService(tmp_path / "repo")
     repo.repo_path.mkdir(parents=True, exist_ok=True)
     return repo
+
+
+@pytest.fixture
+async def git_ready(git_repo) -> GitService:
+    """An initialized scratch repository with repo-local identity.
+
+    CI runners and eval environments have no global git identity; the
+    repository must carry its own for commits to work anywhere.
+    """
+    await git_repo.init()
+    await git_repo.set_identity("Harness Test", "harness@test.local")
+    return git_repo
 
 
 @pytest.fixture

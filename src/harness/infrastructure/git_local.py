@@ -81,8 +81,25 @@ class GitService:
     async def add(self, *paths: str) -> None:
         await self._run("add", "--", *paths) if paths else await self._run("add", "-A")
 
+    async def set_identity(self, name: str, email: str) -> None:
+        """Set repository-local git identity (the harness signs its own commits)."""
+        await self._run("config", "user.name", name)
+        await self._run("config", "user.email", email)
+
+    async def _run_allow_fail(self, *args: str) -> str:
+        """Run a command whose nonzero exit is a valid answer (e.g. unset config)."""
+        try:
+            return await self._run(*args)
+        except GitError:
+            return ""
+
     async def commit(self, message: str) -> str:
-        out = await self._run("commit", "-m", message)
+        # CI and locked-down eval environments often have no git identity at
+        # all; if the repo-local identity is unset, sign the commit ourselves.
+        args = ["commit", "-m", message]
+        if not (await self._run_allow_fail("config", "--local", "user.email")):
+            args = ["-c", "user.name=Harness Agent", "-c", "user.email=harness@localhost", *args]
+        out = await self._run(*args)
         logger.info("commit created", repo=str(self.repo_path), message=message[:80])
         return out
 

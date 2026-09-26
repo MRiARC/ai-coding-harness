@@ -62,9 +62,8 @@ async def test_pr_status_aggregates_checks(mock_github) -> None:
     assert status == {"mergeable": True, "state": "open", "checks_total": 2, "checks_failed": 1}
 
 
-async def test_git_branch_lifecycle(git_repo) -> None:
-    git = git_repo
-    await git.init()
+async def test_git_branch_lifecycle(git_ready) -> None:
+    git = git_ready
     (git.repo_path / "a.txt").write_text("hello\n")
     await git.add("a.txt")
     await git.commit("init")
@@ -79,9 +78,8 @@ async def test_git_branch_lifecycle(git_repo) -> None:
     assert "agent/impl-1/task-1" not in await git.list_branches()
 
 
-async def test_git_failure_raises_giterror(git_repo) -> None:
+async def test_git_failure_raises_giterror(git_ready) -> None:
     from harness.infrastructure.git_local import GitError
 
-    await git_repo.init()
     with pytest.raises(GitError):
-        await git_repo.checkout("branch-that-does-not-exist")
+        await git_ready.checkout("branch-that-does-not-exist")
