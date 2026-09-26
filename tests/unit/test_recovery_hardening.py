@@ -184,7 +184,7 @@ def test_l2_loop_guards_against_empty_policy(memory_store) -> None:
         StubManager(),
         StubArchitect(),
         memory_store,
-        policy=AttemptPolicy(self_repair=1, re_route=0, re_plan=0),
+        policy=AttemptPolicy(self_repair=0, re_route=1, re_plan=0),
     )
     result = asyncio_run_ladder(ladder)
     assert not result.success

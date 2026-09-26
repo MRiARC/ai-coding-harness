@@ -165,3 +165,74 @@ async def test_specialist_success_first_try_has_no_recovery_events(
     kinds = [event["event"] for event in _trace_events(outcome)]
     assert not any(kind.startswith("recovery.") for kind in kinds)
     store.close()
+
+
+async def test_collaborator_cap_bounds_spawning(demo_repo: Path, fake_model_config) -> None:
+    """At most 2 collaborators per pipeline; a capped re-route degrades to
+    guidance-only retries and the run still ends honestly (audit §8)."""
+    from harness.config import BudgetConfig
+    from harness.engine.budget import BudgetGovernor
+    from harness.engine.evidence import EvidencePack
+
+    reframe_json = '{"title": "st-1", "description": "simpler retry", "acceptance_criteria": []}'
+    boom = RuntimeError("boom")
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            ModelResponse(content=PROFILE_JSON),
+            ModelResponse(content=PLAN_JSON),
+            boom,
+            boom,
+            boom,  # L1 exhausted -> complex_task
+            boom,  # L2 attempt 1 (collaborator cap already reached -> guidance only)
+            boom,  # L2 attempt 2
+            ModelResponse(content=reframe_json),  # L3 reframe
+            boom,  # L3 attempt
+            ModelResponse(content=VERDICT_JSON),
+        ],
+    )
+    store = SQLiteContextStore(demo_repo / ".harness" / "pipeline4.db")
+    pipeline = HarnessPipeline(demo_repo, _config(extra_specialist=False), provider, store)
+
+    # Pre-arrange: the collaborator cap is already spent.
+    governor = BudgetGovernor(store, BudgetConfig(), "pre-run")
+    pack = EvidencePack(demo_repo / "results", "pre-run")
+    assert pipeline._add_collaborator("ver-1", governor, pack, "pre-run") is not None
+    assert pipeline._add_collaborator("ver-1", governor, pack, "pre-run") is not None
+    assert pipeline._add_collaborator("ver-1", governor, pack, "pre-run") is None
+
+    outcome = await pipeline.run("greet works")
+    assert not outcome.success
+    assert pipeline._collaborators_added == 2
+    kinds = [event["event"] for event in _trace_events(outcome)]
+    assert "specialist.collaborator_added" not in kinds
+    store.close()
+
+
+async def test_tool_limitation_guidance_falls_through_reroute(
+    demo_repo: Path, fake_model_config
+) -> None:
+    """'tool guidance' L2 decisions keep the same specialist (reroute -> None)
+    but the guidance still reaches the task (covered by 4.3's prompt wiring)."""
+    bad_tool = RuntimeError("unknown tool 'zap'")
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            ModelResponse(content=PROFILE_JSON),
+            ModelResponse(content=PLAN_JSON),
+            bad_tool,
+            bad_tool,
+            bad_tool,  # L1 exhausted; message contains "unknown tool" -> tool_limitation
+            ModelResponse(content="TASK_COMPLETE: fixed with the suggested tool"),
+            ModelResponse(content=VERDICT_JSON),
+        ],
+    )
+    store = SQLiteContextStore(demo_repo / ".harness" / "pipeline5.db")
+    pipeline = HarnessPipeline(demo_repo, _config(extra_specialist=False), provider, store)
+    outcome = await pipeline.run("greet works")
+
+    assert outcome.success, outcome.outcome_line
+    kinds = [event["event"] for event in _trace_events(outcome)]
+    assert "recovery.l2_guidance" in kinds
+    assert "recovery.l2_reroute" not in kinds
+    store.close()
