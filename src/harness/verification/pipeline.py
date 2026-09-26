@@ -12,7 +12,6 @@ Stages 1/2/3/5 are deterministic; Stage 4 is the AST smell pass
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field

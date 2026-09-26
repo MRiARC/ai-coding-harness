@@ -104,7 +104,6 @@ def test_apply_edit_survives_symlinked_repo_root(tmp_path: Path) -> None:
     link.symlink_to(real)
 
     tool = ApplyEditTool(link)  # root passed through the symlink path
-    result = tool.execute(path="calc.py", search="return a - b",
-                          replace="return a + b")
+    result = tool.execute(path="calc.py", search="return a - b", replace="return a + b")
     assert result.success, result.error
     assert "return a + b" in (real / "calc.py").read_text()
