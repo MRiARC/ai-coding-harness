@@ -416,3 +416,23 @@ async def test_alias_cannot_bypass_persona_tier_cap(store, fake_model_config) ->
     tool_turn = next(t for t in window.recent if t.role == "tool")
     assert "exceeds this persona's tool tier cap" in tool_turn.content
     assert not (Path(".") / "escape.py").exists()
+
+
+async def test_retry_reusing_task_id_starts_from_a_clean_window(store, fake_model_config) -> None:
+    """A retry under the same task id must not rehydrate the failed attempt's
+    turns: duplicate TASK turns made the model replay old replies (live-run
+    finding behind the NOT VERIFIED loop)."""
+    stale = store.load_agent_context("impl-1", "t-1")
+    store.append_turn("impl-1", "t-1", "user", "TASK: old failed attempt")
+    store.append_turn("impl-1", "t-1", "assistant", "I already did this.")
+    provider = FakeProvider(fake_model_config, responses=[_text("TASK_COMPLETE: fresh attempt")])
+    agent = _agent(store, provider)
+    result = await agent.execute_task(TASK)
+    assert result.success
+    messages = provider.calls[0]["messages"]
+    task_turns = [m for m in messages if m["role"] == "user" and "TASK:" in str(m.get("content"))]
+    assert len(task_turns) == 1
+    assert all("old failed attempt" not in str(m.get("content")) for m in messages)
+    # The fresh window is persisted for the next stage, not just in memory.
+    assert store.load_agent_context("impl-1", "t-1").recent
+    del stale
