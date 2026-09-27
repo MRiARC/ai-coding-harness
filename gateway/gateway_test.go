@@ -139,3 +139,34 @@ func TestHubBroadcastReachesClients(t *testing.T) {
 		t.Fatal("broadcast without clients must be a no-op")
 	}
 }
+
+func TestDashboardEndpoint(t *testing.T) {
+	gateway := NewGateway(LoadConfig(), nil)
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+
+	response, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("dashboard request failed: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", response.StatusCode)
+	}
+}
+
+func TestBroadcastEventEndpoint(t *testing.T) {
+	gateway := NewGateway(LoadConfig(), nil)
+	server := httptest.NewServer(gateway.Handler())
+	defer server.Close()
+
+	response, err := http.Post(server.URL+"/api/events", "application/json",
+		strings.NewReader(`{"event": "test.event", "run_id": "r1"}`))
+	if err != nil {
+		t.Fatalf("broadcast request failed: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", response.StatusCode)
+	}
+}

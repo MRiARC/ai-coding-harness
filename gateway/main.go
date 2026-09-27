@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"embed"
 	"encoding/json"
 	"io"
 	"log"
@@ -22,6 +23,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
+
+//go:embed web/*
+var webFS embed.FS
 
 // Config from the environment (12-factor; never hard-coded credentials).
 type Config struct {
@@ -103,13 +107,43 @@ func NewGateway(config Config, proxy http.Handler) *Gateway {
 // Handler builds the full route table.
 func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", g.handleDashboard)
+	mux.HandleFunc("GET /dashboard", g.handleDashboard)
 	mux.HandleFunc("GET /api/health", g.handleHealth)
+	mux.HandleFunc("POST /api/events", g.handleBroadcastEvent)
 	mux.HandleFunc("POST /api/tasks", g.handleCreateTask)
 	mux.HandleFunc("GET /api/tasks/{id}", g.handleTask)
 	mux.HandleFunc("GET /api/agents", g.proxyToOrchestrator)
 	mux.HandleFunc("GET /api/metrics", g.handleMetrics)
 	mux.HandleFunc("GET /ws", g.handleWS)
 	return mux
+}
+
+func (g *Gateway) handleDashboard(w http.ResponseWriter, _ *http.Request) {
+	content, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		content, err = os.ReadFile("web/index.html")
+		if err != nil {
+			content, err = os.ReadFile("gateway/web/index.html")
+		}
+	}
+	if err != nil {
+		http.Error(w, "dashboard not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
+}
+
+func (g *Gateway) handleBroadcastEvent(w http.ResponseWriter, request *http.Request) {
+	var raw json.RawMessage
+	if err := json.NewDecoder(request.Body).Decode(&raw); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json"})
+		return
+	}
+	g.hub.Broadcast(raw)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "broadcast"})
 }
 
 func (g *Gateway) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -140,7 +174,12 @@ func (g *Gateway) handleCreateTask(w http.ResponseWriter, request *http.Request)
 	}
 	proxied := proxyRequest(w, request, g.config.OrchestratorURL+"/agent/run", payload)
 	if proxied == nil {
-		return // proxyRequest already wrote the error response
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "failed to communicate with orchestrator"})
+		return
+	}
+	if errStr, hasErr := proxied["error"].(string); hasErr && errStr != "" && proxied["success"] == false {
+		writeJSON(w, http.StatusInternalServerError, proxied)
+		return
 	}
 	g.recordTask(runID, proxied)
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -235,6 +274,9 @@ func proxyRequest(w http.ResponseWriter, request *http.Request, target string, b
 	var decoded map[string]any
 	if json.Unmarshal(recorder.Body.Bytes(), &decoded) == nil {
 		return decoded
+	}
+	if recorder.Code >= 400 {
+		return map[string]any{"error": string(recorder.Body.Bytes()), "success": false}
 	}
 	return nil
 }

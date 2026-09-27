@@ -48,15 +48,30 @@ class RedisEventPublisher:
         return None
 
     def publish(self, run_id: str, event: dict[str, Any]) -> None:
-        """Publish one event; silently inert without Redis configuration."""
+        """Publish one event to Redis (if configured) and broadcast to Gateway API."""
         client = self._resolved()
-        if client is None:
-            return
-        channel = f"{CHANNEL_PREFIX}.{run_id}"
+        if client is not None:
+            channel = f"{CHANNEL_PREFIX}.{run_id}"
+            try:
+                client.publish(channel, json.dumps(event, sort_keys=True, default=str))
+            except Exception as exc:
+                logger.warning("redis publish failed", channel=channel, error=str(exc)[:200])
+
+        gateway_url = os.environ.get("GATEWAY_EVENTS_URL", "http://localhost:8080/api/events")
         try:
-            client.publish(channel, json.dumps(event, sort_keys=True, default=str))
-        except Exception as exc:
-            logger.warning("redis publish failed", channel=channel, error=str(exc)[:200])
+            import urllib.request
+
+            payload = json.dumps(event, sort_keys=True, default=str).encode("utf-8")
+            req = urllib.request.Request(
+                gateway_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=0.25):
+                pass
+        except Exception:
+            pass
 
     def sink_for(self, run_id: str) -> Any:
         """Event-sink callable for `EvidencePack(event_sink=...)`."""

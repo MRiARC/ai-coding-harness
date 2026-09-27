@@ -9,6 +9,7 @@ is an optional `harness[platform]` add-on.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +100,14 @@ def create_app(
         if repo_root not in pipelines:
             cfg = _config()
             store = create_context_store(cfg.storage)
-            resolved = provider or create_model_provider(cfg.models["default"])
+            key_env = cfg.models["default"].api_key_env
+            demo = (os.environ.get("HARNESS_DEMO") == "1") or (not os.environ.get(key_env))
+            if demo and provider is None:
+                from harness.infrastructure.model_providers.fake import build_demo_provider
+
+                resolved = build_demo_provider(cfg.models["default"])
+            else:
+                resolved = provider or create_model_provider(cfg.models["default"])
             pipelines[repo_root] = HarnessPipeline(
                 repo_root=Path(repo_root),
                 config=cfg,
@@ -180,7 +188,13 @@ def create_app(
 
         run_id = uuid.uuid4().hex[:12]
         pipeline = _pipeline(request.repo_root, event_sink=publisher.sink_for(run_id))
-        outcome = await pipeline.run(request.issue, demo_mode=request.demo_mode)
+        key_env = _config().models["default"].api_key_env
+        demo = (
+            request.demo_mode
+            or (os.environ.get("HARNESS_DEMO") == "1")
+            or (not os.environ.get(key_env))
+        )
+        outcome = await pipeline.run(request.issue, demo_mode=demo)
         return {
             "run_id": outcome.run_id,
             "success": outcome.success,
