@@ -38,6 +38,11 @@ class StageResult:
     blocking: bool = True
 
 
+def _reproduction_node(raw: str) -> str:
+    """Bare pytest node id: architects sometimes emit 'pytest node::id' (#81)."""
+    return raw.split(maxsplit=1)[1] if raw.startswith("pytest ") else raw
+
+
 class VerificationPipeline:
     """Runs the quality gates over one change set and reports a verdict."""
 
@@ -143,11 +148,14 @@ class VerificationPipeline:
                 repro_ok: bool | None = None
                 if baseline.reproduction_test:
                     repro = await tool.execute_async(
-                        path=baseline.reproduction_test, extra_args=["--tb=no"]
+                        path=_reproduction_node(baseline.reproduction_test),
+                        extra_args=["--tb=no"],
                     )
                     repro_ok = repro.success
                     evidence["reproduction_passes_after"] = repro_ok
-                    evidence["reproduction_output_tail"] = (repro.output or repro.error or "")[-800:]
+                    evidence["reproduction_output_tail"] = (repro.output or repro.error or "")[
+                        -800:
+                    ]
                     evidence["reproduction_command_cwd"] = str(tool._root)
                 if regressions:
                     passed = False

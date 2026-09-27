@@ -82,7 +82,7 @@ class Plan(BaseModel):
     needs_collaboration: bool = False
     reproduction_test: str = Field(
         default="",
-        description="Pytest node id that fails before the patch and must pass after.",
+        description="Bare pytest node id (file::test) that fails before the patch and must pass after. NOT a command - never include the 'pytest' prefix.",
     )
     allow_test_edits: bool = Field(
         default=False,
