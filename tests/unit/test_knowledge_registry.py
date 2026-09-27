@@ -23,7 +23,7 @@ from harness.tools.registry import TOOL_NAMES, build_default_tools
 def test_every_persona_has_a_playbook() -> None:
     missing = [role for role in ROLE_PRESETS if role not in PLAYBOOKS]
     assert not missing, f"playbooks missing for: {missing}"
-    assert len(PLAYBOOKS) == len(ROLE_PRESETS) == 13
+    assert len(PLAYBOOKS) == len(ROLE_PRESETS) == 14
 
 
 def test_every_playbook_has_canonical_sections() -> None:

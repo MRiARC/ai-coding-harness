@@ -20,6 +20,10 @@ run:
 	@echo ">> Launching AI Harness..."
 	$(PYTHON) -m harness run
 
+chat:
+	@echo ">> Foreman chat (Ctrl+C / /exit to quit)..."
+	$(PYTHON) -m harness chat
+
 gui:
 	@echo ">> Launching Foreman Web Dashboard..."
 	$(PYTHON) -m harness gui

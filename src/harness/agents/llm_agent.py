@@ -255,6 +255,8 @@ class LLMAgent(BaseAgent):
         max_steps: int = DEFAULT_MAX_STEPS,
         keep_recent: int = DEFAULT_KEEP_RECENT,
         stale_tool_results: int = DEFAULT_STALE_TOOL_RESULTS,
+        require_marker: bool = True,
+        persistent_window: bool = False,
         knowledge_enabled: bool = True,
         knowledge_max_chars: int = 1500,
     ) -> None:
@@ -269,6 +271,8 @@ class LLMAgent(BaseAgent):
         self.max_steps = max_steps
         self.keep_recent = keep_recent
         self.stale_tool_results = stale_tool_results
+        self.require_marker = require_marker
+        self.persistent_window = persistent_window
         self.knowledge_enabled = knowledge_enabled
         self.knowledge_max_chars = knowledge_max_chars
         self._active_task: str | None = None
@@ -321,7 +325,8 @@ class LLMAgent(BaseAgent):
         # attempt's persisted turns before reopening the window: replaying
         # them appends duplicate TASK turns and the model re-sends its old
         # replies instead of acting (live-run finding).
-        self.store.clear_window(self.agent_id, task.id)
+        if not self.persistent_window:
+            self.store.clear_window(self.agent_id, task.id)
         self.context_window = StoreWindow(
             self.store, self.agent_id, task.id, stale_tool_results=self.stale_tool_results
         )
@@ -437,6 +442,8 @@ class LLMAgent(BaseAgent):
                 response.completion_tokens,
             )
             content = strip_think_blocks(response.content or "")
+            if not response.tool_calls:
+                self.context_window.append("assistant", content)
             if response.tool_calls:
                 calls: list[dict[str, Any]] = [
                     {
@@ -478,7 +485,7 @@ class LLMAgent(BaseAgent):
                         tool_name=call["name"],
                     )
                 continue
-            if FINAL_MARKER in content:
+            if FINAL_MARKER in content or not self.require_marker:
                 self._maybe_compress(task.id)
                 return content, True, None
             # A reply with neither tool calls nor the marker is the model
@@ -512,7 +519,12 @@ class LLMAgent(BaseAgent):
                     knowledge=self._persona_knowledge(),
                     extra=(
                         f"Working repo task id: {task.id}. "
-                        f"End with {FINAL_MARKER} when done.{mode_directive}"
+                        + (
+                            f"End with {FINAL_MARKER} when done."
+                            if self.require_marker
+                            else "Reply directly to the user when done."
+                        )
+                        + mode_directive
                         + (f"\n\n{tool_manual}" if tool_manual else "")
                     ),
                 ),

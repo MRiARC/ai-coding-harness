@@ -121,6 +121,7 @@ class AgentConfig(BaseModel):
         "security",
         "documentation",
         "code-review",
+        "chat",
     ] = "implementer"
     model: str = Field(description="Key into the top-level `models` mapping.")
     knowledge: bool = Field(

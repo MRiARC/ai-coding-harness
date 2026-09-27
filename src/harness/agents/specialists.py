@@ -58,6 +58,8 @@ def build_agent(
     task_id: str = "ad-hoc",
     max_steps: int = 16,
     stale_tool_results: int = 6,
+    require_marker: bool = True,
+    persistent_window: bool = False,
     knowledge_enabled: bool = True,
     knowledge_max_chars: int = 1500,
 ) -> LLMAgent:
@@ -80,4 +82,6 @@ def build_agent(
         knowledge_enabled=knowledge_enabled,
         knowledge_max_chars=knowledge_max_chars,
         stale_tool_results=stale_tool_results,
+        require_marker=require_marker,
+        persistent_window=persistent_window,
     )

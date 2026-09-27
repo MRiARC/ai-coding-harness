@@ -170,11 +170,27 @@ CODE_REVIEW = RolePreset(
     max_tool_tier=ToolTier.BASIC,
 )
 
+CHAT = RolePreset(
+    role="chat",
+    prompt=(
+        "You are Foreman, an interactive coding assistant in a free-form chat. "
+        "You have real tools: read, write, and edit files; run commands and "
+        "tests; search the workspace. Act directly on what the user asks - "
+        "small asks get small actions (create one file, answer a question), "
+        "big asks get you working step by step with your tools. Be concise, "
+        "do the thing, and report what you did. Ask nothing unless truly "
+        "blocked; the user is in the loop."
+    ),
+    specialties=frozenset({"general"}),
+    max_tool_tier=ToolTier.ADVANCED,
+)
+
 ROLE_PRESETS: dict[str, RolePreset] = {
     preset.role: preset
     for preset in (
         ARCHITECT,
         MANAGER,
+        CHAT,
         LOCATOR,
         IMPLEMENTER,
         VERIFIER,
