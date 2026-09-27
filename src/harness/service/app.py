@@ -111,6 +111,7 @@ def create_app(
             demo = (os.environ.get("HARNESS_DEMO") == "1") or (
                 not has_key and cfg.models["default"].provider != "fake"
             )
+            resolved: Any
             if demo and provider is None:
                 from harness.infrastructure.model_providers.fake import build_demo_provider
 
