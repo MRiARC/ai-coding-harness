@@ -80,7 +80,7 @@ class HarnessPipeline:
         audit: AuditLog | None = None,
         event_sink: Any = None,
     ) -> None:
-        self._repo_root = Path(repo_root)
+        self._repo_root = Path(repo_root).resolve()  # canonical: macOS /tmp symlinks
         self._config = config
         self._store = store
         self._audit = audit or AuditLog(self._repo_root / ".harness" / "audit.jsonl")
@@ -148,6 +148,8 @@ class HarnessPipeline:
                 tools=self._tools,
                 model_tier=agent_config.model_tier,
                 stale_tool_results=agent_config.stale_tool_results,
+                knowledge_enabled=agent_config.knowledge,
+                knowledge_max_chars=agent_config.knowledge_max_chars,
             )
             self._agents[agent.agent_id] = agent
             from harness.agents.prompts import ROLE_PRESETS

@@ -12,6 +12,7 @@ Stages 1/2/3/5 are deterministic; Stage 4 is the AST smell pass
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -35,6 +36,11 @@ class StageResult:
     duration_seconds: float = 0.0
     evidence: dict[str, Any] = field(default_factory=dict)
     blocking: bool = True
+
+
+def _reproduction_node(raw: str) -> str:
+    """Bare pytest node id: architects sometimes emit 'pytest node::id' (#81)."""
+    return raw.split(maxsplit=1)[1] if raw.startswith("pytest ") else raw
 
 
 class VerificationPipeline:
@@ -142,10 +148,15 @@ class VerificationPipeline:
                 repro_ok: bool | None = None
                 if baseline.reproduction_test:
                     repro = await tool.execute_async(
-                        path=baseline.reproduction_test, extra_args=["--tb=no"]
+                        path=_reproduction_node(baseline.reproduction_test),
+                        extra_args=["--tb=no"],
                     )
                     repro_ok = repro.success
                     evidence["reproduction_passes_after"] = repro_ok
+                    evidence["reproduction_output_tail"] = (repro.output or repro.error or "")[
+                        -800:
+                    ]
+                    evidence["reproduction_command_cwd"] = str(tool._root)
                 if regressions:
                     passed = False
                     detail = f"baseline regressions: {', '.join(regressions[:5])}"
@@ -230,6 +241,13 @@ def stage_report(results: list[StageResult]) -> str:
             f"| {result.name} | {'PASS' if result.passed else 'FAIL'} "
             f"| {result.detail[:160]} | {result.duration_seconds}s |"
         )
+    for result in results:
+        if result.evidence:
+            lines.append("")
+            lines.append(f"### {result.name} evidence")
+            lines.append("```json")
+            lines.append(json.dumps(result.evidence, indent=2, sort_keys=True, default=str))
+            lines.append("```")
     overall = all(r.passed for r in results if r.blocking)
     lines.append("")
     lines.append(f"**Overall: {'VERIFIED' if overall else 'NOT VERIFIED'}**")

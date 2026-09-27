@@ -372,3 +372,47 @@ async def test_guidance_from_metadata_reaches_the_model(store, fake_model_config
     system_text = sent[0]["content"]
     assert "MANAGER GUIDANCE: try narrower scope first" in user_text
     assert "guidance" not in system_text.lower() or True  # user-turn delivery is canonical
+
+
+async def test_persona_tier_cap_blocks_named_tools(store, fake_model_config) -> None:
+    """The tier cap is a hard contract: a locator naming apply_edit is denied."""
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("writer_tool", content="x"),
+            _text("TASK_COMPLETE: done"),
+        ],
+    )
+    agent = _agent(store, provider, role="locator", model_tier=3)  # even at tier 3
+    result = await agent.execute_task(TASK)
+    assert result.success
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("exceeds this persona's tool tier cap" in t.content for t in window.recent)
+
+
+async def test_alias_cannot_bypass_persona_tier_cap(store, fake_model_config) -> None:
+    """55a16f9 hardened the exact-name path; the alias path must be too.
+
+    A read-only persona (locator, BASIC cap) naming the natural alias
+    'write_file' must be denied at execution time, not slip through to
+    filesystem_write via TOOL_ALIASES.
+    """
+    from pathlib import Path
+
+    from harness.tools.filesystem import WriteFileTool
+
+    write_tool = WriteFileTool(Path("."))
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("write_file", path="escape.py", content="x"),
+            _text("TASK_COMPLETE: tried the alias"),
+        ],
+    )
+    agent = _agent(store, provider, tools=[EchoTool(), write_tool])
+    agent.role = "locator"  # BASIC tier cap — preset is a property, reads live
+    await agent.execute_task(TASK)
+    window = store.load_agent_context("impl-1", "t-1")
+    tool_turn = next(t for t in window.recent if t.role == "tool")
+    assert "exceeds this persona's tool tier cap" in tool_turn.content
+    assert not (Path(".") / "escape.py").exists()

@@ -310,3 +310,17 @@ def test_publisher_lazy_client_from_url(monkeypatch) -> None:
     publisher = RedisEventPublisher()  # no client -> lazy from REDIS_URL
     publisher.publish("run-lazy", {"event": "x"})
     assert FakeRedisClient.url == "redis://localhost:6379/0"
+
+
+def test_reproduction_node_normalization() -> None:
+    """Architects sometimes emit 'pytest node::id' — the gate strips the prefix."""
+    from harness.verification.pipeline import _reproduction_node
+
+    assert _reproduction_node("pytest test_app.py::test_add") == "test_app.py::test_add"
+    assert _reproduction_node("test_app.py::test_add") == "test_app.py::test_add"
+
+
+async def _noop():
+    from harness.verification.pipeline import StageResult
+
+    return StageResult("x", False, "fail")

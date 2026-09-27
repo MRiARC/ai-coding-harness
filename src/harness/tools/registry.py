@@ -24,7 +24,7 @@ from harness.tools.vcs import GitAddTool, GitBranchTool, GitDiffTool, GitLogTool
 
 def build_default_tools(repo_root: Path) -> list[Tool]:
     """The standard toolbelt: 5 Tier-1, 5 Tier-2, 2 Tier-3 tools."""
-    root = Path(repo_root)
+    root = Path(repo_root).resolve()  # canonical: macOS /tmp symlinks (#81 finding)
     return [
         # Tier 1 - basic operations (issue 3.1)
         ReadFileTool(root),

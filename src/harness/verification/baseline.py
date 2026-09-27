@@ -66,7 +66,11 @@ async def capture_baseline(
 
     reproduction_failing_before: bool | None = None
     if reproduction_test and framework == "pytest":
-        repro = await run_tests.execute_async(path=reproduction_test, extra_args=["--tb=no"])
+        from harness.verification.pipeline import _reproduction_node
+
+        repro = await run_tests.execute_async(
+            path=_reproduction_node(reproduction_test), extra_args=["--tb=no"]
+        )
         reproduction_failing_before = not repro.success
 
     return Baseline(
