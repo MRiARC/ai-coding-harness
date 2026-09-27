@@ -199,6 +199,28 @@ def replay_command(run_id: str | None) -> int:
     return 0
 
 
+def chat_command(args: argparse.Namespace) -> int:
+    """Free-form chat: one agent, all tools, persistent session."""
+    from harness.chat import chat_loop
+    from harness.infrastructure.context_store import SQLiteContextStore
+
+    config = ConfigLoader().load()
+    scope = Path(args.scope or os.environ.get("HARNESS_SCOPE") or ".").expanduser().resolve()
+    if not scope.exists():
+        print(f"[error] scope does not exist: {scope}")
+        return 2
+    store = SQLiteContextStore(scope / ".harness" / "chat.db")
+    try:
+        return chat_loop(
+            config,
+            scope,
+            store,
+            max_steps=args.max_steps,
+        )
+    finally:
+        store.close()
+
+
 def bench_command(args: argparse.Namespace) -> int:
     """`harness bench`: offline A/B token benchmark (milestone 5, issue 5.5)."""
     from harness.bench.tokens import main as bench_main
@@ -274,6 +296,13 @@ def main(argv: list[str] | None = None) -> int:
     solve_parser.add_argument("--issue", help="issue text inline")
     solve_parser.add_argument("--issue-file", help="path to a file holding the issue text")
     solve_parser.add_argument("--repo", help="target repository root (default: cwd)")
+    chat_parser = subparsers.add_parser(
+        "chat", help="free-form chat with Foreman (all tools, persistent session)"
+    )
+    chat_parser.add_argument("--scope", help="workspace root the tools may touch (default: cwd)")
+    chat_parser.add_argument(
+        "--max-steps", type=int, default=None, help="steps per turn (default: run.max_steps)"
+    )
     bench_parser = subparsers.add_parser(
         "bench", help="offline A/B token benchmark on the fixture repo"
     )
@@ -290,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
         return doctor(probe_model=args.probe_model)
     if args.command in ("gui", "dashboard"):
         return gui_command(args)
+    if args.command == "chat":
+        return chat_command(args)
     if args.command == "replay":
         return replay_command(args.run_id)
     if args.command == "solve":
