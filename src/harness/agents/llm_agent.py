@@ -528,6 +528,17 @@ class LLMAgent(BaseAgent):
         from harness.tools.registry import TOOL_ALIASES
 
         tool = next((t for t in self.tools if t.name == name), None)
+        # The persona's tier cap is a hard contract, not a schema hint: a
+        # read-only locator must not execute apply_edit by merely naming it
+        # (live-run finding — the locator "fixed" the bug itself).
+        allowed_tier = self.preset.max_tool_tier if self.preset else ToolTier.ADVANCED
+        if tool is not None and tool.tier > allowed_tier:
+            return ToolResult(
+                success=False,
+                error=f"tool '{name}' exceeds this persona's tool tier cap "
+                f"({allowed_tier.name}); use the tools your role provides",
+            )
+        tool = next((t for t in self.tools if t.name == name), None)
         if tool is None and name in TOOL_ALIASES:
             # Models call tools by natural names (read_file, grep, ...);
             # resolve the registry's canonical instance (live-run finding).

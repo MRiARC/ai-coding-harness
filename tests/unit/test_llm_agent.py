@@ -372,3 +372,19 @@ async def test_guidance_from_metadata_reaches_the_model(store, fake_model_config
     system_text = sent[0]["content"]
     assert "MANAGER GUIDANCE: try narrower scope first" in user_text
     assert "guidance" not in system_text.lower() or True  # user-turn delivery is canonical
+
+
+async def test_persona_tier_cap_blocks_named_tools(store, fake_model_config) -> None:
+    """The tier cap is a hard contract: a locator naming apply_edit is denied."""
+    provider = FakeProvider(
+        fake_model_config,
+        responses=[
+            _call("writer_tool", content="x"),
+            _text("TASK_COMPLETE: done"),
+        ],
+    )
+    agent = _agent(store, provider, role="locator", model_tier=3)  # even at tier 3
+    result = await agent.execute_task(TASK)
+    assert result.success
+    window = store.load_agent_context("impl-1", "t-1")
+    assert any("exceeds this persona's tool tier cap" in t.content for t in window.recent)
