@@ -234,8 +234,10 @@ def gui_command(args: argparse.Namespace | None = None) -> int:
         pass
 
     if not is_running:
-        gateway_bin = Path(__file__).resolve().parent.parent.parent / "bin" / "foreman-gateway"
-        if gateway_bin.is_file():
+        gateway_bin = os.environ.get("HARNESS_GATEWAY_BIN") or (
+            Path(__file__).resolve().parent.parent.parent / "bin" / "foreman-gateway"
+        )
+        if Path(gateway_bin).is_file():
             print("[info] starting Foreman Gateway daemon on port 8080...")
             subprocess.Popen(
                 [str(gateway_bin)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
