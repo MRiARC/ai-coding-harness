@@ -65,7 +65,8 @@ def test_health_checks_green(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_health_reports_missing_key_as_optional(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("AI_API_KEY", raising=False)
+    for alt in ("AI_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(alt, raising=False)
     report = run_health_checks(tmp_path)
     assert report.ready  # offline mode still ready
     strict = run_health_checks(tmp_path, require_api_key=True)
@@ -73,7 +74,8 @@ def test_health_reports_missing_key_as_optional(tmp_path: Path, monkeypatch) -> 
 
 
 def test_health_detects_broken_config(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("AI_API_KEY", raising=False)
+    for alt in ("AI_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(alt, raising=False)
     (tmp_path / "harness.yaml").write_text(
         "agents:\n  - agent_id: a\n    role: verifier\n    model: nope\n"
     )

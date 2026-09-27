@@ -52,7 +52,14 @@ def doctor(probe_model: bool = False) -> int:
     print(f"[ok] configuration valid: {path}")
     default_model = config.models.get("default")
     key_env = default_model.api_key_env if default_model else API_KEY_ENV
-    if not os.environ.get(key_env):
+    has_key = bool(
+        os.environ.get(key_env)
+        or os.environ.get("AI_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("CODEX_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+    )
+    if not has_key:
         print(
             f"[warn] environment variable {key_env} is not set; "
             "the harness will run in offline/test mode only"
@@ -122,7 +129,16 @@ def solve_command(args: argparse.Namespace) -> int:
     else:
         provider = create_model_provider(config.models["default"])
         key_env = config.models["default"].api_key_env
-        if config.models["default"].provider != "fake" and not os.environ.get(key_env):
+        has_key = bool(
+            os.environ.get(key_env)
+            or os.environ.get("AI_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("CODEX_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+            or key_env.startswith("sk-")
+            or len(key_env) > 25
+        )
+        if config.models["default"].provider != "fake" and not has_key:
             print(
                 f"[error] environment variable {key_env} is not set; "
                 "cannot authenticate the configured model"
@@ -215,6 +231,46 @@ def bench_command(args: argparse.Namespace) -> int:
     return bench_main(argv)
 
 
+def tui_command(args: argparse.Namespace | None = None) -> int:
+    """`harness tui`: launch the interactive TUI cockpit."""
+    from harness.engine.evidence import find_evidence
+    from harness.ui.tui import CockpitApp
+
+    pack = find_evidence(Path.cwd() / "results") or _adhoc_pack()
+    CockpitApp(pack).run()
+    return 0
+
+
+def gui_command(args: argparse.Namespace | None = None) -> int:
+    """`harness gui`: launch and open the web dashboard in your browser."""
+    import subprocess
+    import time
+    import urllib.request
+    import webbrowser
+
+    gateway_url = "http://localhost:8080"
+    is_running = False
+    try:
+        with urllib.request.urlopen(gateway_url + "/api/health", timeout=0.5) as resp:
+            if resp.status == 200:
+                is_running = True
+    except Exception:
+        pass
+
+    if not is_running:
+        gateway_bin = Path(__file__).resolve().parent.parent.parent / "bin" / "foreman-gateway"
+        if gateway_bin.is_file():
+            print("[info] starting Foreman Gateway daemon on port 8080...")
+            subprocess.Popen(
+                [str(gateway_bin)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            time.sleep(0.5)
+
+    print(f"[ok] opening Foreman Web Dashboard at {gateway_url}...")
+    webbrowser.open(gateway_url)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="harness", description=__doc__)
     parser.add_argument("--version", action="version", version=f"harness {__version__}")
@@ -228,6 +284,9 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser(
         "run", help="launch the harness (TUI on a TTY, headless summary otherwise)"
     )
+    subparsers.add_parser("tui", help="launch the interactive terminal cockpit (TUI)")
+    subparsers.add_parser("gui", help="launch and open the web dashboard in your browser")
+    subparsers.add_parser("dashboard", help="alias for 'harness gui'")
     replay_parser = subparsers.add_parser(
         "replay", help="replay a recorded evidence trace (default: most recent)"
     )
@@ -252,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "doctor":
         return doctor(probe_model=args.probe_model)
+    if args.command == "tui":
+        return tui_command(args)
+    if args.command in ("gui", "dashboard"):
+        return gui_command(args)
     if args.command == "replay":
         return replay_command(args.run_id)
     if args.command == "solve":

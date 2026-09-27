@@ -129,7 +129,8 @@ def test_solve_requires_issue(demo_repo: Path, monkeypatch, capsys) -> None:
 def test_solve_missing_key_fails_fast(demo_repo: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(demo_repo)
     monkeypatch.delenv("HARNESS_DEMO", raising=False)
-    monkeypatch.delenv("AI_API_KEY", raising=False)
+    for alt in ("AI_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(alt, raising=False)
     (demo_repo / "harness.yaml").write_text(
         "models:\n  default:\n    provider: openai-compatible\n    name: m\n"
     )
