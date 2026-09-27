@@ -318,6 +318,14 @@ class HarnessPipeline:
 
         async def run_one(subtask: SubTask) -> TaskResult:
             task = subtask.to_task()
+            if any(
+                not (self._repo_root / rel).exists() for rel in task.files
+            ) and task.specialty not in {"implementer", "testing", "verification"}:
+                # Creation task (planned files don't exist yet): only an
+                # editing-capable role may take it. Live-run finding — a
+                # create-pytest.ini subtask landed on the read-only Locator,
+                # which "localized" instead of creating and reported success.
+                task = task.model_copy(update={"specialty": "implementer"})
             chosen = assign_specialists(task, self._specialist_slots, team_average_tokens=0)
             agent_id = chosen[0] if chosen else next(iter(self._agents))
             agent = self._agents[agent_id]
@@ -404,9 +412,20 @@ class HarnessPipeline:
     def _working_diff(self) -> str:
         try:
             # Intent-to-add first: untracked files (greenfield creation) must
-            # appear in the patch, or the evidence pack hides new work.
+            # appear in the patch, or the evidence pack hides new work. The
+            # harness's own artifacts (audit log, results/) are excluded — a
+            # live creation run leaked them into the patch (M5 finding).
             subprocess.run(
-                ["git", "add", "--intent-to-add", "-A"],
+                [
+                    "git",
+                    "add",
+                    "--intent-to-add",
+                    "-A",
+                    "--",
+                    ".",
+                    f":(exclude){self._config.run.results_dir}",
+                    ":(exclude).harness",
+                ],
                 cwd=self._repo_root,
                 capture_output=True,
                 timeout=60,

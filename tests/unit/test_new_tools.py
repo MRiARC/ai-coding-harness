@@ -207,3 +207,32 @@ def test_glob_output_capped_at_max(repo: Path) -> None:
     assert result.success
     assert f"capped at {tool.MAX_MATCHES} files" in result.output
     assert len(result.output.splitlines()) == tool.MAX_MATCHES + 1
+
+
+def test_working_diff_excludes_harness_artifacts(tmp_path: Path) -> None:
+    """Intent-to-add must not sweep .harness/ or results/ into the patch."""
+    import subprocess
+
+    from harness.config import HarnessConfig
+    from harness.engine.pipeline import HarnessPipeline
+
+    subprocess.run(["git", "init", "-q", "-b", "main", str(tmp_path)], check=True)
+    (tmp_path / ".harness").mkdir()
+    (tmp_path / ".harness" / "audit.jsonl").write_text('{"a": 1}\n')
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "run1").mkdir()
+    (tmp_path / "results" / "run1" / "trace.jsonl").write_text("{}\n")
+    (tmp_path / "app.py").write_text("X = 1\n")
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "t"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-qm", "base", "--allow-empty"], check=True
+    )
+
+    config = HarnessConfig.model_validate(
+        {"models": {"default": {"provider": "fake", "name": "m"}}, "agents": []}
+    )
+    pipeline = HarnessPipeline(tmp_path, config, provider=None, store=None)
+    diff = pipeline._working_diff()
+    assert "app.py" in diff and "+X = 1" in diff
+    assert "audit.jsonl" not in diff and "trace.jsonl" not in diff
