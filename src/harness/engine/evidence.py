@@ -118,3 +118,51 @@ def build_summary(
     if flags:
         sections += ["## Security flags", *[f"- {flag}" for flag in flags], ""]
     return "\n".join(sections)
+
+
+# -- pure event rendering (moved from the removed Textual cockpit) ----------
+
+
+def format_event(event: dict[str, Any]) -> str:
+    """Render one trace event to a log line (pure; testable without Textual)."""
+    kind = event.get("event", "?")
+    run_id = event.get("run_id", "-")
+    if kind == "specialist.result":
+        return (
+            f"[{run_id}] {event.get('task')} -> "
+            f"{'OK' if event.get('success') else 'FAIL'}: "
+            f"{str(event.get('summary', ''))[:120]}"
+        )
+    if kind == "specialist.assigned":
+        return f"[{run_id}] {event.get('task')} assigned to {event.get('agent')}"
+    if kind == "run.end":
+        return f"[{run_id}] run finished: {'SUCCESS' if event.get('success') else 'FAILED'}"
+    return f"[{run_id}] {kind}"
+
+
+def status_line(events: list[dict[str, Any]], tokens_total: int | None = None) -> str:
+    """Render the status meter line (pure; testable without Textual).
+
+    `tokens_total` comes from the pack's token-report.json when present —
+    it is the authoritative spend; the per-event sum is the fallback.
+    """
+    if tokens_total is None:
+        tokens_total = 0
+        for event in events:
+            usage = event.get("usage") or {}
+            tokens_total += int(usage.get("total_tokens", 0))
+    run_id = events[0].get("run_id", "-") if events else "(none)"
+    return f"run: {run_id}  events: {len(events)}  tokens: {tokens_total}"
+
+
+def latest_evidence(results_root: Path) -> EvidencePack | None:
+    """Most recently modified run directory, or None."""
+    root = Path(results_root)
+    if not root.exists():
+        return None
+    runs = sorted(
+        (d for d in root.iterdir() if d.is_dir()), key=lambda d: d.stat().st_mtime, reverse=True
+    )
+    if not runs:
+        return None
+    return EvidencePack(root, runs[0].name)

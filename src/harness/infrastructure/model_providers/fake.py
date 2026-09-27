@@ -23,9 +23,19 @@ class FakeProvider(ModelProvider):
     fails loudly rather than hallucinating further responses.
     """
 
-    def __init__(self, config: Any, responses: list[Any], client: Any = None) -> None:
+    def __init__(
+        self,
+        config: Any,
+        responses: list[Any],
+        client: Any = None,
+        loop: bool = False,
+    ) -> None:
         super().__init__(config, client)
+        self._initial_responses = [
+            r.model_copy() if hasattr(r, "model_copy") else r for r in responses
+        ]
         self._responses = list(responses)
+        self._loop = loop
         self.calls: list[dict[str, Any]] = []
         from harness.infrastructure.model_providers.capability import ModelCapabilities
 
@@ -58,7 +68,17 @@ class FakeProvider(ModelProvider):
         **overrides: Any,
     ) -> ModelResponse:
         self.calls.append({"messages": messages, "tools": tools, "overrides": overrides})
+        if not self._responses and self._loop and self._initial_responses:
+            self._responses = [
+                r.model_copy() if hasattr(r, "model_copy") else r for r in self._initial_responses
+            ]
         if not self._responses:
+            if self._loop:
+                return ModelResponse(
+                    content="TASK_COMPLETE: demo step finished",
+                    prompt_tokens=10,
+                    completion_tokens=5,
+                )
             msg = (
                 f"FakeProvider script exhausted after {len(self.calls) - 1} calls; "
                 "extend the script in the test"
@@ -127,4 +147,4 @@ def build_demo_provider(config: Any) -> FakeProvider:
             )
         ),
     ]
-    return FakeProvider(config, responses=responses)
+    return FakeProvider(config, responses=responses, loop=True)

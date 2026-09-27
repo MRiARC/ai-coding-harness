@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from harness.cli import gui_command, main, tui_command
+from harness.cli import gui_command, main
 from harness.service.events import RedisEventPublisher
 
 
@@ -51,7 +51,8 @@ def _config():
 def test_run_without_api_key_uses_demo_provider(demo_repo, monkeypatch) -> None:
     from harness.service.app import create_app
 
-    monkeypatch.delenv("AI_API_KEY", raising=False)
+    for alt in ("AI_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(alt, raising=False)
     monkeypatch.delenv("HARNESS_DEMO", raising=False)
     app = create_app(config=_config(), provider=None)
     response = TestClient(app).post(
@@ -98,31 +99,6 @@ def test_publisher_relays_events_to_gateway(monkeypatch) -> None:
 
 
 # -- `harness tui` ------------------------------------------------------------------
-def test_tui_command_launches_cockpit(monkeypatch) -> None:
-    launched = SimpleNamespace(ran=False)
-
-    class FakeApp:
-        def __init__(self, pack):
-            self.pack = pack
-
-        def run(self):
-            launched.ran = True
-
-    import harness.ui.tui as tui_module
-
-    monkeypatch.setattr(tui_module, "CockpitApp", FakeApp)
-    assert tui_command(None) == 0
-    assert launched.ran is True
-
-
-def test_main_dispatches_tui(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "harness.cli.tui_command", lambda args: (_ for _ in ()).throw(SystemExit(0))
-    )
-    with pytest.raises(SystemExit):
-        main(["tui"])
-
-
 # -- `harness gui` -------------------------------------------------------------------
 def test_gui_command_with_running_gateway(monkeypatch) -> None:
     opened: list[str] = []
@@ -281,3 +257,21 @@ def test_config_dotenv_unreadable_file_is_skipped(monkeypatch, tmp_path) -> None
         pass  # acceptable: the loader surfaced the OS error, config still loads below
     finally:
         unreadable.chmod(0o644)
+
+
+async def test_fake_provider_loop_replays_script_then_canned(fake_model_config) -> None:
+    """A looping FakeProvider replays its script when exhausted; with no
+    script at all it answers canned completions (demo-provider behavior)."""
+    from harness.infrastructure.model_providers import FakeProvider, ModelResponse
+
+    replayer = FakeProvider(
+        fake_model_config, responses=[ModelResponse(content="only once")], loop=True
+    )
+    first = await replayer.generate([{"role": "user", "content": "go"}])
+    second = await replayer.generate([{"role": "user", "content": "again"}])
+    assert first.content == "only once"
+    assert second.content == "only once"  # script replayed from the copy
+
+    endless = FakeProvider(fake_model_config, responses=[], loop=True)
+    canned = await endless.generate([{"role": "user", "content": "go"}])
+    assert "TASK_COMPLETE" in canned.content

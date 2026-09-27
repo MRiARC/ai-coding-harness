@@ -22,7 +22,7 @@ make clean     # artifacts only (keeps .venv)
 1. `--issue "text"` / `--issue-file path` (`harness solve …` directly)
 2. `HARNESS_ISSUE` / `HARNESS_ISSUE_FILE` environment variables
 3. **piped stdin**: `echo "issue text" | make run`
-4. nothing supplied → cockpit (TTY) or health summary (headless)
+4. nothing supplied → health summary + latest-evidence pointer (headless)
 
 Target repository: the one the issue refers to. Default is the harness's own
 cwd; point elsewhere with `HARNESS_TARGET_REPO=/path/to/target` or `--repo`.
@@ -80,7 +80,7 @@ summary - for demos only, never for graded evaluation.
 | exit 3, "AI_API_KEY is not set" | the configured (non-fake) model has no credential - export it |
 | exit 1, "NOT VERIFIED" | a verification gate failed - `test-report.md` says which |
 | "no evidence pack found" | `harness replay` ran before any solve - run the pipeline first |
-| cockpit instead of solving | no issue was supplied; pipe it or set `HARNESS_ISSUE` |
+| health summary instead of solving | no issue was supplied; pipe it or set `HARNESS_ISSUE` |
 
 ## 7. Rehearsal (this runbook, verified)
 

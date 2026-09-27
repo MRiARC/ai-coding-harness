@@ -2,7 +2,7 @@
 
 - `harness doctor [--probe-model]` - validate the runtime environment
   (`make setup` target; the model probe is opt-in because it costs tokens)
-- `harness run` - TUI cockpit on a TTY, headless health summary otherwise
+- `harness run` - health summary + evidence pointer (headless by design)
 - `harness replay [RUN_ID]` - replay a recorded evidence trace offline
 """
 
@@ -174,15 +174,7 @@ def run_command() -> int:
     from harness.monitoring.health import run_health_checks
 
     report = run_health_checks(Path.cwd())
-    if sys.stdin.isatty():
-        from harness.engine.evidence import find_evidence
-        from harness.ui.tui import CockpitApp
-
-        pack = find_evidence(Path.cwd() / "results") or _adhoc_pack()
-        CockpitApp(pack).run()
-        return 0
     print(report.summary())
-    print("[info] no TTY detected; headless mode. Pipe an issue or use a terminal for the cockpit.")
     return 0 if report.ready else 1
 
 
@@ -194,19 +186,13 @@ def _adhoc_pack() -> Any:  # EvidencePack; late import keeps CLI startup light
 
 def replay_command(run_id: str | None) -> int:
     """Replay a recorded evidence trace (offline demo / post-run audit)."""
-    from harness.engine.evidence import find_evidence
-    from harness.ui.tui import format_event
+    from harness.engine.evidence import find_evidence, format_event
 
     pack = find_evidence(Path.cwd() / "results", run_id)
     if pack is None:
         print("[error] no evidence pack found under results/; run the pipeline first")
         return 1
     events = pack.read_trace()
-    if sys.stdin.isatty():
-        from harness.ui.tui import CockpitApp
-
-        CockpitApp(pack).run()
-        return 0
     for event in events:
         print(format_event(event))
     print(f"[ok] replayed {pack.run_id} ({len(events)} events) - headless mode")
@@ -229,16 +215,6 @@ def bench_command(args: argparse.Namespace) -> int:
     if args.json_out:
         argv += ["--json-out", args.json_out]
     return bench_main(argv)
-
-
-def tui_command(args: argparse.Namespace | None = None) -> int:
-    """`harness tui`: launch the interactive TUI cockpit."""
-    from harness.engine.evidence import find_evidence
-    from harness.ui.tui import CockpitApp
-
-    pack = find_evidence(Path.cwd() / "results") or _adhoc_pack()
-    CockpitApp(pack).run()
-    return 0
 
 
 def gui_command(args: argparse.Namespace | None = None) -> int:
@@ -284,7 +260,6 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser(
         "run", help="launch the harness (TUI on a TTY, headless summary otherwise)"
     )
-    subparsers.add_parser("tui", help="launch the interactive terminal cockpit (TUI)")
     subparsers.add_parser("gui", help="launch and open the web dashboard in your browser")
     subparsers.add_parser("dashboard", help="alias for 'harness gui'")
     replay_parser = subparsers.add_parser(
@@ -311,8 +286,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "doctor":
         return doctor(probe_model=args.probe_model)
-    if args.command == "tui":
-        return tui_command(args)
     if args.command in ("gui", "dashboard"):
         return gui_command(args)
     if args.command == "replay":

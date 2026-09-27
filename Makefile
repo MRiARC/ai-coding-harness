@@ -5,7 +5,7 @@ VENV := .venv
 PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-.PHONY: setup run tui gui dashboard test bench-tokens clean lint typecheck gateway tui-go compose-up compose-down
+.PHONY: setup run gui dashboard test bench-tokens clean lint typecheck gateway tui-go compose-up compose-down
 
 setup:
 	@echo ">> Setting up environment..."
@@ -19,10 +19,6 @@ setup:
 run:
 	@echo ">> Launching AI Harness..."
 	$(PYTHON) -m harness run
-
-tui:
-	@echo ">> Launching AI Harness TUI..."
-	$(PYTHON) -m harness tui
 
 gui:
 	@echo ">> Launching Foreman Web Dashboard..."
