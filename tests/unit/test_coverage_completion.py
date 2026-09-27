@@ -49,8 +49,12 @@ def test_run_command_headless(monkeypatch, tmp_path, capsys) -> None:
     assert "READY" in capsys.readouterr().out
 
 
-def test_run_command_tty_launches_cockpit(monkeypatch, tmp_path) -> None:
-    launched = {}
+def test_run_command_headless_summary_with_tty(monkeypatch, tmp_path, capsys) -> None:
+    """With no issue supplied, run prints the summary — even on a TTY.
+
+    The Python TUI was removed (user decision, 2026-09-27): run is
+    headless-only; the Go TUI (platform layer) is the cockpit.
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AI_API_KEY", "k")
 
@@ -61,17 +65,9 @@ def test_run_command_tty_launches_cockpit(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(sys, "stdin", FakeStdin())
     import harness.cli as cli
 
-    class FakeApp:
-        def __init__(self, pack) -> None:
-            launched["pack"] = pack
-
-        def run(self) -> None:
-            launched["ran"] = True
-
-    monkeypatch.setattr("harness.ui.tui.CockpitApp", FakeApp)
     assert cli.run_command() == 0
-    # TTY path constructed a cockpit (via the EvidencePack fallback branch)
-    assert (tmp_path / "results" / "adhoc").exists()
+    out = capsys.readouterr().out
+    assert "READY: True" in out
 
 
 def test_run_command_headless_not_ready(monkeypatch, tmp_path, capsys) -> None:

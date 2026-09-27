@@ -2,7 +2,7 @@
 
 - `harness doctor [--probe-model]` - validate the runtime environment
   (`make setup` target; the model probe is opt-in because it costs tokens)
-- `harness run` - TUI cockpit on a TTY, headless health summary otherwise
+- `harness run` - health summary + evidence pointer (headless by design)
 - `harness replay [RUN_ID]` - replay a recorded evidence trace offline
 """
 
@@ -158,15 +158,7 @@ def run_command() -> int:
     from harness.monitoring.health import run_health_checks
 
     report = run_health_checks(Path.cwd())
-    if sys.stdin.isatty():
-        from harness.engine.evidence import find_evidence
-        from harness.ui.tui import CockpitApp
-
-        pack = find_evidence(Path.cwd() / "results") or _adhoc_pack()
-        CockpitApp(pack).run()
-        return 0
     print(report.summary())
-    print("[info] no TTY detected; headless mode. Pipe an issue or use a terminal for the cockpit.")
     return 0 if report.ready else 1
 
 
@@ -178,19 +170,13 @@ def _adhoc_pack() -> Any:  # EvidencePack; late import keeps CLI startup light
 
 def replay_command(run_id: str | None) -> int:
     """Replay a recorded evidence trace (offline demo / post-run audit)."""
-    from harness.engine.evidence import find_evidence
-    from harness.ui.tui import format_event
+    from harness.engine.evidence import find_evidence, format_event
 
     pack = find_evidence(Path.cwd() / "results", run_id)
     if pack is None:
         print("[error] no evidence pack found under results/; run the pipeline first")
         return 1
     events = pack.read_trace()
-    if sys.stdin.isatty():
-        from harness.ui.tui import CockpitApp
-
-        CockpitApp(pack).run()
-        return 0
     for event in events:
         print(format_event(event))
     print(f"[ok] replayed {pack.run_id} ({len(events)} events) - headless mode")
@@ -225,9 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="make one tiny live model call (costs tokens; offline CI omits this)",
     )
-    subparsers.add_parser(
-        "run", help="launch the harness (TUI on a TTY, headless summary otherwise)"
-    )
+    subparsers.add_parser("run", help="print the health summary and latest-evidence pointer")
     replay_parser = subparsers.add_parser(
         "replay", help="replay a recorded evidence trace (default: most recent)"
     )
