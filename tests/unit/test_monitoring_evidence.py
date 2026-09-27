@@ -109,7 +109,7 @@ def test_evidence_pack_roundtrip(tmp_path: Path) -> None:
 
 
 def test_evidence_empty_and_latest(tmp_path: Path) -> None:
-    from harness.ui.tui import latest_evidence
+    from harness.engine.evidence import latest_evidence
 
     assert latest_evidence(tmp_path / "results") is None
     (tmp_path / "results").mkdir()
@@ -117,3 +117,65 @@ def test_evidence_empty_and_latest(tmp_path: Path) -> None:
     pack = EvidencePack(tmp_path / "results", "run-1")
     pack.trace({"event": "x"})
     assert latest_evidence(tmp_path / "results").run_id == "run-1"
+
+
+def test_format_event_variants() -> None:
+    """Pure event renderers moved from the removed cockpit (issue: py-TUI removal)."""
+    from harness.engine.evidence import format_event, status_line
+
+    run = {"run_id": "r-1"}
+    assert (
+        format_event(
+            {
+                **run,
+                "event": "specialist.result",
+                "task": "t1",
+                "success": True,
+                "summary": "did it",
+            }
+        )
+        == "[r-1] t1 -> OK: did it"
+    )
+    assert (
+        format_event({**run, "event": "specialist.assigned", "task": "t1", "agent": "impl-1"})
+        == "[r-1] t1 assigned to impl-1"
+    )
+    assert (
+        format_event({**run, "event": "run.end", "success": False}) == "[r-1] run finished: FAILED"
+    )
+    assert format_event({**run, "event": "other.kind"}) == "[r-1] other.kind"
+
+    # status_line: explicit total wins; per-event sum is the fallback
+    events = [
+        {**run, "usage": {"total_tokens": 10}},
+        {**run, "usage": {"total_tokens": 5}},
+    ]
+    assert status_line(events, tokens_total=99) == "run: r-1  events: 2  tokens: 99"
+    assert status_line(events) == "run: r-1  events: 2  tokens: 15"
+    assert status_line([]) == "run: (none)  events: 0  tokens: 0"
+
+
+def test_adhoc_pack_fallback(tmp_path: Path, monkeypatch) -> None:
+    """run's adhoc evidence fallback (no results dir) still constructs a pack."""
+    monkeypatch.chdir(tmp_path)
+    from harness.cli import _adhoc_pack
+
+    pack = _adhoc_pack()
+    assert pack.run_id == "adhoc" and pack.path.is_dir()
+
+
+def test_latest_evidence_ignores_files(tmp_path: Path) -> None:
+    """Non-directory entries under results/ are not runs."""
+    from harness.engine.evidence import latest_evidence
+
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "stray.txt").write_text("not a run")
+    assert latest_evidence(tmp_path / "results") is None
+
+
+def test_find_evidence_empty_results_dir(tmp_path: Path) -> None:
+    """find_evidence with an existing-but-empty results dir returns None."""
+    from harness.engine.evidence import find_evidence
+
+    (tmp_path / "results").mkdir()
+    assert find_evidence(tmp_path / "results") is None

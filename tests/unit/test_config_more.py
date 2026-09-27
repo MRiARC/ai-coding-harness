@@ -72,6 +72,6 @@ def test_pinned_runtime_dependencies() -> None:
     from pathlib import Path
 
     text = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text()
-    for package in ("pydantic==", "PyYAML==", "httpx==", "structlog==", "textual=="):
+    for package in ("pydantic==", "PyYAML==", "httpx==", "structlog=="):
         assert package in text
     assert "pydantic>=" not in text

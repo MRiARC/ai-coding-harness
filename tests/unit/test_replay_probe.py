@@ -74,26 +74,6 @@ def test_replay_explicit_run_id(monkeypatch, tmp_path: Path, packed: EvidencePac
     assert "run-replay" in capsys.readouterr().out
 
 
-def test_replay_tty_opens_cockpit(monkeypatch, tmp_path: Path, packed: EvidencePack) -> None:
-    monkeypatch.chdir(tmp_path)
-    opened = {}
-    monkeypatch.setattr("sys.stdin", FakeIsatty())
-    import harness.ui.tui as tui
-
-    class FakeApp:
-        def __init__(self, pack: EvidencePack) -> None:
-            opened["pack"] = pack
-
-        def run(self) -> None:
-            opened["ran"] = True
-
-    monkeypatch.setattr(tui, "CockpitApp", FakeApp)
-    from harness.cli import replay_command
-
-    assert replay_command("run-replay") == 0
-    assert opened["ran"] and opened["pack"].run_id == "run-replay"
-
-
 class FakeIsatty:
     def isatty(self) -> bool:
         return True

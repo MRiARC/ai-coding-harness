@@ -16,7 +16,6 @@ dependencies = [
     "PyYAML==6.0.3",
     "httpx==0.28.1",
     "structlog==26.1.0",
-    "textual==8.2.8",
 ]
 
 [project.optional-dependencies]

@@ -269,6 +269,7 @@ Every §1–§14 mechanism now exists in code (PRs #43/#59/#68, one per mileston
 | Recovery ladder L1×3/L2×2/L3×1/L4-graceful, evidence-informed retries, genuine re-route + bounded collaborator spawn | ✅ |
 | Reproduction-first baseline + test-integrity gate (improvements §1.1/§1.3) | ✅ (6th pipeline stage; `baseline.json` in the pack) |
 | Evidence pack (`patch.diff`, `trace.jsonl`, `test-report.md`, `baseline.json`, `token-report.json`, `summary.md`) | ✅ |
+| TUI cockpit | 🗑️ removed (v1.1 R5): eval mode is headless-only; the Go TUI (platform) is the graphical view |
 | Escalation-gated parallelism (disjoint file-sets + dependency DAG; unknown ⇒ sequential) | ✅ |
 | Universal tool-calling (probe; native **or** text protocol; reasoning-model tolerance) | ✅ (improvements §3.1) |
 | Reproducibility (pinned deps, offline FakeModel, seeded fixtures) | ✅ |
@@ -328,5 +329,6 @@ is legitimate **as an adapter layer**, under these rules:
   outrank platform work until submission. Postgres (P5) must *implement* the
   store before the config guard (M4 #56) is lifted — removing the guard is
   not an option.
-- **R5 — One cockpit.** The existing Textual cockpit is the interface of
-  record; a second TUI must replace it, not parallel it.
+- **R5 — One cockpit.** The Python Textual cockpit was removed (2026-09-27,
+  user decision after manual testing): eval mode is headless-only by design —
+  the Go TUI (platform layer) is the sole graphical cockpit.
