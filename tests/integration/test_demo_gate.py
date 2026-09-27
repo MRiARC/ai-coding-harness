@@ -210,3 +210,35 @@ async def test_demo_gate_recovery_demonstrated(work_repo: Path) -> None:
     assert retry_events[0]["error_type"] == "KeyError"
     baseline = json.loads((outcome.evidence_path / "baseline.json").read_text())
     assert baseline["reproduction_failing_before"] is True
+
+
+async def test_creation_task_routes_to_editing_role(work_repo: Path) -> None:
+    """A subtask whose planned files don't exist must route to an
+    editing-capable specialist, never the read-only Locator (live finding)."""
+    plan_json = (
+        _plan_json(reproduction=False)
+        .replace('"files": ["calculator.py"]', '"files": ["setup.cfg"]')
+        .replace('"specialty": "implementer"', '"specialty": "setup"')
+    )
+    script = [
+        ModelResponse(content=PROFILE_JSON),
+        ModelResponse(content=plan_json),
+        ModelResponse(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="w1",
+                    name="filesystem_write",
+                    arguments={"path": "setup.cfg", "content": "[metadata]\nname = demo\n"},
+                )
+            ],
+        ),
+        ModelResponse(content="TASK_COMPLETE: setup.cfg created"),
+        ModelResponse(content=_verdict_json()),
+    ]
+    outcome = await _pipeline(work_repo, script).run("create setup.cfg")
+    # the creation subtask was taken by an editing-capable role, and the
+    # locator never received it
+    assigned = [e for e in _trace(outcome) if e["event"] == "specialist.assigned"]
+    assert assigned and assigned[0]["agent"] == "impl-1"  # editing-capable
+    assert (work_repo / "setup.cfg").exists()
