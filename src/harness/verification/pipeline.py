@@ -12,6 +12,7 @@ Stages 1/2/3/5 are deterministic; Stage 4 is the AST smell pass
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -147,7 +148,7 @@ class VerificationPipeline:
                     repro_ok = repro.success
                     evidence["reproduction_passes_after"] = repro_ok
                     evidence["reproduction_output_tail"] = (repro.output or repro.error or "")[-800:]
-                    evidence["reproduction_command_cwd"] = str(tool._root)  # noqa: SLF001
+                    evidence["reproduction_command_cwd"] = str(tool._root)
                 if regressions:
                     passed = False
                     detail = f"baseline regressions: {', '.join(regressions[:5])}"
@@ -232,6 +233,13 @@ def stage_report(results: list[StageResult]) -> str:
             f"| {result.name} | {'PASS' if result.passed else 'FAIL'} "
             f"| {result.detail[:160]} | {result.duration_seconds}s |"
         )
+    for result in results:
+        if result.evidence:
+            lines.append("")
+            lines.append(f"### {result.name} evidence")
+            lines.append("```json")
+            lines.append(json.dumps(result.evidence, indent=2, sort_keys=True, default=str))
+            lines.append("```")
     overall = all(r.passed for r in results if r.blocking)
     lines.append("")
     lines.append(f"**Overall: {'VERIFIED' if overall else 'NOT VERIFIED'}**")

@@ -5,7 +5,7 @@ SPEC_GREETING = 42  # the documented history value; do not change
 
 def add(a, b):
     # BUG(issue-add): returns the difference instead of the sum.
-    return a - b
+    return a + b
 
 
 def history_value():
