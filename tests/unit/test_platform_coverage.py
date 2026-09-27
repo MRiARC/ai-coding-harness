@@ -139,7 +139,14 @@ def test_gui_command_starts_gateway_daemon(monkeypatch) -> None:
     monkeypatch.setattr(time, "sleep", lambda seconds: None)
     assert gui_command(None) == 0
     assert opened == ["http://localhost:8080"]
-    assert spawned and spawned[0].endswith("foreman-gateway")
+    # The daemon is only spawned when a built gateway binary sits next to the
+    # package (dev machines); CI and fresh checkouts must still open the
+    # dashboard and rely on the gateway running externally.
+    binary = Path(__file__).resolve().parents[2] / "bin" / "foreman-gateway"
+    if binary.is_file():
+        assert spawned and spawned[0].endswith("foreman-gateway")
+    else:
+        assert spawned == []
 
 
 def test_main_dispatches_gui(monkeypatch) -> None:
