@@ -167,6 +167,16 @@ class ContextStore(ABC):
         """Persist all three windows of an agent context (upsert)."""
 
     @abstractmethod
+    def clear_window(self, agent_id: str, task_id: str) -> None:
+        """Drop the persisted conversation turns for one (agent, task) window.
+
+        Task ids are reused across recovery-ladder retries, so a fresh
+        `execute_task` must start from a clean window: rehydrating the failed
+        attempt's turns appends a second TASK turn and the model replays its
+        earlier replies instead of acting (live-run finding).
+        """
+
+    @abstractmethod
     def compress(
         self,
         agent_id: str,
@@ -248,6 +258,10 @@ class MemoryContextStore(ContextStore):
 
     def save_agent_context(self, context: AgentContext) -> None:
         self._contexts[(context.agent_id, context.task_id)] = context
+
+    def clear_window(self, agent_id: str, task_id: str) -> None:
+        with self._lock:
+            self._contexts.pop((agent_id, task_id), None)
 
     def compress(
         self,
@@ -481,6 +495,17 @@ class SQLiteContextStore(ContextStore):
                 ],
             )
 
+    def clear_window(self, agent_id: str, task_id: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM context_windows WHERE agent_id = ? AND task_id = ?",
+                (agent_id, task_id),
+            )
+            self._conn.execute(
+                "DELETE FROM agent_contexts WHERE agent_id = ? AND task_id = ?",
+                (agent_id, task_id),
+            )
+
     def compress(
         self,
         agent_id: str,
@@ -647,6 +672,17 @@ class PostgresContextStore(ContextStore):
 
     def neighbors(self, agent_id: str, task_id: str) -> list[AgentContext]:
         raise NotImplementedError  # pragma: no cover
+
+    def clear_window(self, agent_id: str, task_id: str) -> None:  # pragma: no cover
+        with self._conn, self._conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM context_windows WHERE agent_id = %s AND task_id = %s",
+                (agent_id, task_id),
+            )
+            cur.execute(
+                "DELETE FROM agent_contexts WHERE agent_id = %s AND task_id = %s",
+                (agent_id, task_id),
+            )
 
     def record_token_usage(
         self,

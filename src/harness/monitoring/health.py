@@ -77,9 +77,17 @@ def run_health_checks(
             f"model '{config.models['default'].name}' "
             f"provider '{config.models['default'].provider}'",
         )
-        # credential presence (warn-only unless the caller demands it)
+        # credential presence (warn-only unless the caller demands it).
+        # The key lives only in the environment: a literal key in
+        # `api_key_env` is never accepted as a credential.
         key_env = config.models["default"].api_key_env
-        has_key = bool(os.environ.get(key_env))
+        has_key = bool(
+            os.environ.get(key_env)
+            or os.environ.get("AI_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("CODEX_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+        )
         check(
             "api-key",
             has_key or not require_api_key,

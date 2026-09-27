@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Foreman Cockpit — AI Coding Harness</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #080b11;
+      --surface: #0f1523;
+      --surface-hover: #151d30;
+      --card-bg: rgba(16, 23, 38, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --border-focus: #3b82f6;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.25);
+      --accent: #8b5cf6;
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.2);
+      --warning: #f59e0b;
+      --error: #ef4444;
+      --code-bg: #070a10;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.08) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.06) 0px, transparent 50%);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    header {
+      background: rgba(11, 16, 27, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      box-shadow: 0 0 16px var(--primary-glow);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+    }
+
+    .pulse {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--error);
+      box-shadow: 0 0 8px var(--error);
+      transition: all 0.3s ease;
+    }
+
+    .pulse.connected {
+      background: var(--success);
+      box-shadow: 0 0 10px var(--success);
+      animation: pulse-glow 2s infinite;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.15); }
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb, #3b82f6);
+      color: #ffffff;
+      box-shadow: 0 2px 10px var(--primary-glow);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #1d4ed8, #2563eb);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px var(--primary-glow);
+    }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--surface-hover);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    main {
+      flex: 1;
+      padding: 24px;
+      max-width: 1600px;
+      margin: 0 auto;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Metrics Ribbon */
+    .metrics-ribbon {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 16px;
+      backdrop-filter: blur(8px);
+      transition: border-color 0.2s;
+    }
+
+    .metric-card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .metric-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+      font-family: 'Fira Code', monospace;
+    }
+
+    /* Grid Layout */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr 400px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 1200px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      backdrop-filter: blur(8px);
+    }
+
+    .panel-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 600;
+      font-size: 0.95rem;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .panel-body {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Task Launcher Form */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    input[type="text"], textarea {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    input[type="text"]:focus, textarea:focus {
+      outline: none;
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px var(--primary-glow);
+    }
+
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    .presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .preset-chip {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+
+    .preset-chip:hover {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    /* Agent Roster */
+    .agent-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--card-border);
+    }
+
+    .agent-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .agent-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+    }
+
+    .agent-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .agent-role {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .badge-idle { background: rgba(148, 163, 184, 0.1); color: var(--text-muted); }
+    .badge-active { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-done { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    .badge-fail { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+
+    /* Activity Stream */
+    .activity-feed {
+      height: 520px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px;
+      background: var(--code-bg);
+      font-family: 'Fira Code', monospace;
+      font-size: 0.85rem;
+    }
+
+    .event-card {
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.02);
+      border-left: 3px solid var(--text-dim);
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .event-card.event-run-start { border-left-color: var(--primary); }
+    .event-card.event-specialist-result-ok { border-left-color: var(--success); }
+    .event-card.event-specialist-result-fail { border-left-color: var(--error); }
+    .event-card.event-verification { border-left-color: var(--accent); }
+
+    .event-meta {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-dim);
+      font-size: 0.75rem;
+    }
+
+    .event-title {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .event-detail {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      word-break: break-all;
+    }
+
+    /* Verification Stages */
+    .stage-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--card-border);
+    }
+
+    .stage-title {
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    /* Diff View */
+    .diff-box {
+      background: var(--code-bg);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.8rem;
+      max-height: 280px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      color: var(--text-muted);
+      border: 1px solid var(--card-border);
+    }
+
+    .diff-add { color: #34d399; background: rgba(16, 185, 129, 0.08); }
+    .diff-del { color: #f87171; background: rgba(239, 68, 68, 0.08); }
+
+    /* Footer */
+    footer {
+      margin-top: auto;
+      padding: 16px 24px;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <span>Foreman Cockpit</span>
+      <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: normal;">v0.1.0 (Platform Gateway)</span>
+    </div>
+
+    <div class="nav-actions">
+      <div class="status-badge" id="wsStatus">
+        <div class="pulse" id="pulseIndicator"></div>
+        <span id="wsStatusText">Connecting...</span>
+      </div>
+      <button class="btn btn-secondary" onclick="reconnectWS()">Reconnect WS</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Top Metrics -->
+    <div class="metrics-ribbon">
+      <div class="metric-card">
+        <div class="metric-title">Active Run ID</div>
+        <div class="metric-value" id="metricRunId">—</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Total Events</div>
+        <div class="metric-value" id="metricEvents">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Tokens Meter</div>
+        <div class="metric-value" id="metricTokens">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Pipeline State</div>
+        <div class="metric-value" id="metricStatus" style="font-size: 1.15rem; color: #60a5fa;">IDLE</div>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <!-- Left Column: Task Launcher & Roster -->
+      <div style="display: flex; flex-direction: column; gap: 24px;">
+        <div class="panel">
+          <div class="panel-header">
+            <span>🚀 Run Task</span>
+            <span style="font-size: 0.75rem; color: var(--text-dim);">POST /api/tasks</span>
+          </div>
+          <div class="panel-body">
+            <div class="form-group">
+              <label for="issueInput">Issue Description</label>
+              <textarea id="issueInput" placeholder="Describe the issue or bug to solve (e.g., Fix negative addition in calculator)"></textarea>
+            </div>
+
+            <div class="presets">
+              <span class="preset-chip" onclick="setPreset('Fix negative addition: add(-2, -3) should equal -5')">Calculator Negatives</span>
+              <span class="preset-chip" onclick="setPreset('Fix division by zero error handling in math module')">Division by Zero</span>
+              <span class="preset-chip" onclick="setPreset('Update greeting function to capitalize names')">Greeting Caps</span>
+            </div>
+
+            <div class="form-group">
+              <label for="repoInput">Target Repository Path</label>
+              <input type="text" id="repoInput" value="fixtures/mini-repo">
+            </div>
+
+            <button class="btn btn-primary" id="launchBtn" onclick="launchTask()">
+              <span>Run Autonomous Pipeline</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span>🤖 Agent Roster</span>
+            <span class="badge badge-active">6 Agents</span>
+          </div>
+          <div class="panel-body" style="padding: 12px; gap: 8px;">
+            <div class="agent-item">
+              <div class="agent-info">
+                <div class="agent-avatar">👑</div>
+                <div>
+                  <div class="agent-name">Architect</div>
+                  <div class="agent-role">Decomposition & Strategy</div>
+                </div>
+              </div>
+              <span class="badge badge-idle" id="agent-architect">Ready</span>
+            </div>
+
+            <div class="agent-item">
+              <div class="agent-info">
+                <div class="agent-avatar">🧭</div>
+                <div>
+                  <div class="agent-name">Manager</div>
+                  <div class="agent-role">Task Routing & Governor</div>
+                </div>
+              </div>
+              <span class="badge badge-idle" id="agent-manager">Ready</span>
+            </div>
+
+            <div class="agent-item">
+              <div class="agent-info">
+                <div class="agent-avatar">💻</div>
+                <div>
+                  <div class="agent-name">SDE Specialist 1</div>
+                  <div class="agent-role">Implementation & Patches</div>
+                </div>
+              </div>
+              <span class="badge badge-idle" id="agent-sde-1">Ready</span>
+            </div>
+
+            <div class="agent-item">
+              <div class="agent-info">
+                <div class="agent-avatar">🧪</div>
+                <div>
+                  <div class="agent-name">Verifier</div>
+                  <div class="agent-role">5-Stage Verification Gate</div>
+                </div>
+              </div>
+              <span class="badge badge-idle" id="agent-verifier">Ready</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Column: Live Activity Feed -->
+      <div class="panel">
+        <div class="panel-header">
+          <span>⚡ Live Event Activity Stream</span>
+          <span style="font-size: 0.75rem; color: var(--text-dim);" id="feedCount">0 events</span>
+        </div>
+        <div class="activity-feed" id="activityFeed">
+          <div style="color: var(--text-dim); text-align: center; margin-top: 40px;">
+            Waiting for engine events over WebSocket...<br>
+            <small style="opacity: 0.6;">Launch a task or connect via terminal to see live streaming.</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Verification & Evidence -->
+      <div style="display: flex; flex-direction: column; gap: 24px;">
+        <div class="panel">
+          <div class="panel-header">
+            <span>🧪 Verification Pipeline</span>
+            <span style="font-size: 0.75rem; color: var(--text-dim);">Stages 1–5</span>
+          </div>
+          <div class="panel-body" style="padding: 12px; gap: 8px;">
+            <div class="stage-item">
+              <span class="stage-title">1. Diff Integrity</span>
+              <span class="badge badge-idle" id="stage-integrity">Pending</span>
+            </div>
+            <div class="stage-item">
+              <span class="stage-title">2. Syntax Gate</span>
+              <span class="badge badge-idle" id="stage-syntax">Pending</span>
+            </div>
+            <div class="stage-item">
+              <span class="stage-title">3. Test Execution</span>
+              <span class="badge badge-idle" id="stage-tests">Pending</span>
+            </div>
+            <div class="stage-item">
+              <span class="stage-title">4. AST Smells Check</span>
+              <span class="badge badge-idle" id="stage-smells">Pending</span>
+            </div>
+            <div class="stage-item">
+              <span class="stage-title">5. Regressions Gate</span>
+              <span class="badge badge-idle" id="stage-regression">Pending</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span>📝 Patch Diff</span>
+            <span style="font-size: 0.75rem; color: var(--text-dim);" id="diffStatus">No patch</span>
+          </div>
+          <div class="panel-body" style="padding: 12px;">
+            <div class="diff-box" id="diffBox">No diff generated yet for current run.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div>Foreman Autonomous Coding Harness &bull; Evaluator &amp; Platform Architecture</div>
+    <div>API Gateway: <code style="color: #60a5fa;">localhost:8080</code> &bull; Python Orchestrator: <code style="color: #60a5fa;">localhost:8000</code></div>
+  </footer>
+
+  <script>
+    let socket = null;
+    let eventCount = 0;
+    let totalTokens = 0;
+    let activeRunId = '—';
+
+    function setPreset(text) {
+      document.getElementById('issueInput').value = text;
+    }
+
+    function connectWS() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host || 'localhost:8080';
+      const wsUrl = `${protocol}//${host}/ws`;
+
+      const statusText = document.getElementById('wsStatusText');
+      const pulse = document.getElementById('pulseIndicator');
+
+      statusText.textContent = 'Connecting...';
+      pulse.className = 'pulse';
+
+      try {
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+          statusText.textContent = 'Connected (ws://' + host + '/ws)';
+          pulse.className = 'pulse connected';
+        };
+
+        socket.onmessage = (event) => {
+          handleIncomingEvent(event.data);
+        };
+
+        socket.onclose = () => {
+          statusText.textContent = 'Disconnected';
+          pulse.className = 'pulse';
+          setTimeout(connectWS, 3000);
+        };
+
+        socket.onerror = () => {
+          socket.close();
+        };
+      } catch (err) {
+        console.error('WebSocket connection error:', err);
+      }
+    }
+
+    function reconnectWS() {
+      if (socket) socket.close();
+      connectWS();
+    }
+
+    function handleIncomingEvent(raw) {
+      let data = {};
+      try {
+        data = JSON.parse(raw);
+      } catch (e) {
+        data = { event: 'raw', message: raw };
+      }
+
+      eventCount++;
+      document.getElementById('metricEvents').textContent = eventCount;
+      document.getElementById('feedCount').textContent = `${eventCount} events`;
+
+      if (data.run_id) {
+        activeRunId = data.run_id;
+        document.getElementById('metricRunId').textContent = activeRunId;
+      }
+
+      if (data.usage && data.usage.total_tokens) {
+        totalTokens += parseInt(data.usage.total_tokens, 10);
+        document.getElementById('metricTokens').textContent = totalTokens.toLocaleString();
+      }
+
+      // Add to Activity Feed
+      renderEventToFeed(data);
+
+      // React to specific event types
+      const evName = data.event || '';
+      if (evName === 'run.start') {
+        document.getElementById('metricStatus').textContent = 'RUNNING';
+        document.getElementById('metricStatus').style.color = '#38bdf8';
+        setAgentStatus('agent-architect', 'Planning', 'badge-active');
+      } else if (evName === 'specialist.assigned') {
+        setAgentStatus('agent-manager', 'Assigning', 'badge-active');
+        setAgentStatus('agent-sde-1', 'Coding', 'badge-active');
+      } else if (evName === 'specialist.result') {
+        const ok = data.success !== false;
+        setAgentStatus('agent-sde-1', ok ? 'Completed' : 'Retrying', ok ? 'badge-done' : 'badge-fail');
+      } else if (evName === 'verification.stage') {
+        setAgentStatus('agent-verifier', 'Verifying', 'badge-active');
+        const stName = (data.stage || '').toLowerCase();
+        const ok = data.passed !== false;
+        if (stName.includes('integrity')) setStageStatus('stage-integrity', ok);
+        if (stName.includes('syntax')) setStageStatus('stage-syntax', ok);
+        if (stName.includes('test')) setStageStatus('stage-tests', ok);
+        if (stName.includes('smell')) setStageStatus('stage-smells', ok);
+        if (stName.includes('regression')) setStageStatus('stage-regression', ok);
+      } else if (evName === 'run.end' || evName === 'task.completed') {
+        const ok = data.success !== false && (data.result ? data.result.success !== false : true);
+        document.getElementById('metricStatus').textContent = ok ? 'SUCCESS' : 'FINISHED';
+        document.getElementById('metricStatus').style.color = ok ? '#34d399' : '#f87171';
+        setAgentStatus('agent-architect', 'Ready', 'badge-idle');
+        setAgentStatus('agent-manager', 'Ready', 'badge-idle');
+        setAgentStatus('agent-sde-1', 'Ready', 'badge-idle');
+        setAgentStatus('agent-verifier', 'Done', 'badge-done');
+        
+        // If result has patch or outcome
+        if (data.result && data.result.outcome) {
+          document.getElementById('diffStatus').textContent = data.result.outcome;
+        }
+      }
+    }
+
+    function setAgentStatus(id, text, badgeClass) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = text;
+      el.className = `badge ${badgeClass}`;
+    }
+
+    function setStageStatus(id, ok) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = ok ? 'Passed' : 'Failed';
+      el.className = `badge ${ok ? 'badge-done' : 'badge-fail'}`;
+    }
+
+    function renderEventToFeed(data) {
+      const feed = document.getElementById('activityFeed');
+      if (eventCount === 1) {
+        feed.innerHTML = '';
+      }
+
+      const card = document.createElement('div');
+      const timeStr = new Date().toLocaleTimeString();
+      const evName = data.event || 'engine.event';
+
+      let cssClass = 'event-card';
+      if (evName === 'run.start') cssClass += ' event-run-start';
+      if (evName.includes('result') && data.success) cssClass += ' event-specialist-result-ok';
+      if (evName.includes('result') && !data.success) cssClass += ' event-specialist-result-fail';
+      if (evName.includes('verification')) cssClass += ' event-verification';
+
+      card.className = cssClass;
+
+      let detail = '';
+      if (data.task) detail += `Task: ${data.task} `;
+      if (data.summary) detail += `— ${data.summary} `;
+      if (data.issue) detail += `Issue: "${data.issue.substring(0, 100)}..." `;
+      if (data.detail) detail += `— ${data.detail} `;
+      if (data.result) detail += `Outcome: ${data.result.outcome || JSON.stringify(data.result)} `;
+      if (!detail) detail = JSON.stringify(data);
+
+      card.innerHTML = `
+        <div class="event-meta">
+          <span>[${timeStr}] <strong>${evName}</strong></span>
+          <span>${data.run_id || activeRunId}</span>
+        </div>
+        <div class="event-detail">${detail}</div>
+      `;
+
+      feed.insertBefore(card, feed.firstChild);
+    }
+
+    async function launchTask() {
+      const issue = document.getElementById('issueInput').value.trim();
+      const repoRoot = document.getElementById('repoInput').value.trim() || 'fixtures/mini-repo';
+      const btn = document.getElementById('launchBtn');
+
+      if (!issue) {
+        alert('Please enter an issue description.');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span>Launching run...</span>';
+
+      try {
+        const response = await fetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ issue: issue, repo_root: repoRoot })
+        });
+
+        const result = await response.json();
+        console.log('Task launched:', result);
+      } catch (err) {
+        console.error('Failed to launch task:', err);
+        alert('Task launch request failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>Run Autonomous Pipeline</span>';
+      }
+    }
+
+    // Initialize on load
+    window.addEventListener('DOMContentLoaded', () => {
+      connectWS();
+    });
+  </script>
+</body>
+</html>

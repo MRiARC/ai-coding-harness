@@ -221,6 +221,33 @@ class HarnessConfig(BaseModel):
         return errors
 
 
+def _load_dotenv(path: Path | None = None) -> None:
+    """Load environment variables from .env if present and set AI_API_KEY fallback."""
+    candidates = [Path.cwd() / ".env"]
+    if path and path.parent:
+        candidates.insert(0, path.parent / ".env")
+    for cand in candidates:
+        if cand.is_file():
+            try:
+                for line in cand.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip("'\"")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+            except Exception:
+                pass
+            break
+
+    if "AI_API_KEY" not in os.environ or not os.environ["AI_API_KEY"]:
+        for alt in ("OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"):
+            if os.environ.get(alt):
+                os.environ["AI_API_KEY"] = os.environ[alt]
+                break
+
+
 class ConfigLoader:
     """Load, interpolate, and validate `harness.yaml` into a `HarnessConfig`."""
 
@@ -239,6 +266,7 @@ class ConfigLoader:
     def load(self) -> HarnessConfig:
         """Load configuration; missing file yields defaults, invalid file is fatal."""
         path = self.resolve_path()
+        _load_dotenv(path)
         if path is None:
             logger.info("no configuration file found; using built-in defaults")
             return HarnessConfig()

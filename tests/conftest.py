@@ -135,5 +135,6 @@ def mock_github() -> Callable[[dict[str, Any]], GitHubService]:
 def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
     """Run a test inside an empty cwd with no API key configured."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("AI_API_KEY", raising=False)
+    for alt in ("AI_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(alt, raising=False)
     yield tmp_path

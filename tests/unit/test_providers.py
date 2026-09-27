@@ -96,6 +96,8 @@ async def test_fake_provider_script_and_exhaustion(make_fake_provider) -> None:
 
 async def test_missing_api_key_fails_fast(monkeypatch) -> None:
     monkeypatch.delenv("MY_KEY", raising=False)
+    for alt in ("AI_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(alt, raising=False)
     provider = OpenAICompatibleProvider(
         ModelConfig(provider="openai", name="m", api_key_env="MY_KEY")
     )

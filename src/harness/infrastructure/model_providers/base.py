@@ -83,6 +83,11 @@ class ModelProvider(ABC):
             env = self._config.api_key_env
             key = os.environ.get(env)
             if not key:
+                for alt in ("AI_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY"):
+                    if os.environ.get(alt):
+                        key = os.environ[alt]
+                        break
+            if not key:
                 msg = (
                     f"environment variable '{env}' is not set; cannot authenticate "
                     f"model '{self._config.name}' ({self._config.provider})"

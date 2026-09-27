@@ -317,6 +317,11 @@ class LLMAgent(BaseAgent):
         # window would split the conversation across task ids or hide the
         # task text from the first model call (audit §10).
         self._reset_dedup_state()
+        # Recovery-ladder retries reuse the task id, so drop the failed
+        # attempt's persisted turns before reopening the window: replaying
+        # them appends duplicate TASK turns and the model re-sends its old
+        # replies instead of acting (live-run finding).
+        self.store.clear_window(self.agent_id, task.id)
         self.context_window = StoreWindow(
             self.store, self.agent_id, task.id, stale_tool_results=self.stale_tool_results
         )
