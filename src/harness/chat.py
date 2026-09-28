@@ -19,7 +19,8 @@ from harness.engine.budget import BudgetGovernor
 from harness.infrastructure.context_store import ContextStore
 from harness.infrastructure.model_providers import create_model_provider
 from harness.infrastructure.model_providers.base import ModelAuthError
-from harness.tools.registry import build_default_tools
+from harness.state import state_root
+from harness.tools.registry import build_work_tools
 
 CHAT_TASK = "chat-session"
 CHAT_AGENT_ID = "foreman-chat"
@@ -44,7 +45,7 @@ def build_chat_agent(
     model_cfg = config.models["default"]
     provider = create_model_provider(model_cfg)
     governor = BudgetGovernor(store, config.budget, correlation_id or f"chat-{time.time_ns()}")
-    tools = build_default_tools(scope)
+    tools = build_work_tools(scope, state_root(scope))
     steps = max_steps if max_steps is not None else config.run.max_steps
     agent = build_agent(
         agent_id=CHAT_AGENT_ID,
@@ -96,6 +97,14 @@ def chat_loop(
             continue
         if line in {"/exit", "/quit", "exit", "quit"}:
             break
+        if line.startswith("!"):
+            import subprocess as _sp
+
+            proc = _sp.run(
+                line[1:], shell=True, cwd=str(scope), capture_output=True, text=True, timeout=120
+            )
+            write((proc.stdout or proc.stderr or "(no output)")[-4000:])
+            continue
         if line == "/new":
             reset_session(store)
             write("[new session] context cleared; same tools, same scope.")
@@ -103,6 +112,9 @@ def chat_loop(
         task = Task(id=CHAT_TASK, title=line[:80], description=line)
         try:
             result = asyncio.run(agent.execute_task(task))
+        except KeyboardInterrupt:
+            write("[interrupted] turn cancelled — session intact.")
+            continue
         except ModelAuthError as exc:
             write(f"[error] {exc}")
             write("[hint] export AI_API_KEY=<your key> and start the session again.")
