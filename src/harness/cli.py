@@ -129,14 +129,14 @@ def solve_command(args: argparse.Namespace) -> int:
     else:
         provider = create_model_provider(config.models["default"])
         key_env = config.models["default"].api_key_env
+        # Credentials live only in the environment (ba0b11b): the env-var
+        # NAME is never treated as a key, however long or sk-shaped it is.
         has_key = bool(
             os.environ.get(key_env)
             or os.environ.get("AI_API_KEY")
             or os.environ.get("OPENAI_API_KEY")
             or os.environ.get("CODEX_API_KEY")
             or os.environ.get("ANTHROPIC_API_KEY")
-            or key_env.startswith("sk-")
-            or len(key_env) > 25
         )
         if config.models["default"].provider != "fake" and not has_key:
             print(
@@ -203,13 +203,14 @@ def chat_command(args: argparse.Namespace) -> int:
     """Free-form chat: one agent, all tools, persistent session."""
     from harness.chat import chat_loop
     from harness.infrastructure.context_store import SQLiteContextStore
+    from harness.state import state_root
 
     config = ConfigLoader().load()
     scope = Path(args.scope or os.environ.get("HARNESS_SCOPE") or ".").expanduser().resolve()
     if not scope.exists():
         print(f"[error] scope does not exist: {scope}")
         return 2
-    store = SQLiteContextStore(scope / ".harness" / "chat.db")
+    store = SQLiteContextStore(state_root(scope) / "chat.db")
     try:
         return chat_loop(
             config,

@@ -259,7 +259,9 @@ def test_chat_cli_command_wires_scope_and_store(tmp_path: Path, monkeypatch) -> 
 
     code = cli.chat_command(Args)
     assert code == 0
-    assert (scope / ".harness" / "chat.db").exists()
+    from harness.state import state_root
+
+    assert (state_root(scope) / "chat.db").exists()  # broad scope → ~/.foreman/<hash>
 
 
 def test_chat_eof_and_blank_and_exit_variants(chat_config) -> None:
@@ -310,7 +312,9 @@ def test_chat_dispatch_via_main(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(builtins, "input", lambda prompt="": next(inputs))
 
     assert cli.main(["chat", "--scope", str(scope)]) == 0
-    assert (scope / ".harness" / "chat.db").exists()
+    from harness.state import state_root
+
+    assert (state_root(scope) / "chat.db").exists()  # broad scope → ~/.foreman/<hash>
 
 
 def test_chat_immediate_eof_exits_cleanly(chat_config) -> None:
@@ -402,3 +406,29 @@ def test_chat_meter_is_per_session(chat_config) -> None:
     agent2, _ = build_chat_agent(chat_config, Path("."), store)
     assert agent2.governor.used_tokens() == 0  # fresh correlation id
     assert agent1.governor.correlation_id != agent2.governor.correlation_id
+
+
+def test_chat_shell_passthrough_and_interrupt(chat_config) -> None:
+    """!command runs locally without the model; KI mid-turn cancels cleanly."""
+    store = MemoryContextStore()
+    agent, _ = build_chat_agent(chat_config, Path("."), store)
+
+    class ExplodingProvider(FakeProvider):
+        async def generate(self, *args, **kwargs):
+            raise KeyboardInterrupt()
+
+    agent.provider = ExplodingProvider(chat_config.models["default"], responses=[])
+
+    out, write = _capture()
+    chat_loop(
+        chat_config,
+        Path("."),
+        store,
+        read=_lines("!echo passthrough-works", "hi", "/exit"),
+        write=write,
+        agent=agent,
+    )
+    joined = "\n".join(out)
+    assert "passthrough-works" in joined  # ! ran locally
+    assert "[interrupted] turn cancelled" in joined  # KI mid-turn cancelled
+    assert len(agent.provider.calls) == 0  # the KI turn never reached the model
