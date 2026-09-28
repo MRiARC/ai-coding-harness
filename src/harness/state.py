@@ -11,7 +11,16 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-BROAD_DIR_NAMES = {"Desktop", "Documents", "Downloads", "Projects", "Pictures", "Music", "Movies", "Public"}
+BROAD_DIR_NAMES = {
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Projects",
+    "Pictures",
+    "Music",
+    "Movies",
+    "Public",
+}
 
 
 def is_broad_scope(scope: Path) -> bool:

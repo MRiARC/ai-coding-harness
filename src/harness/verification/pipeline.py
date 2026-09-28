@@ -12,8 +12,13 @@ Stages 1/2/3/5 are deterministic; Stage 4 is the AST smell pass
 
 from __future__ import annotations
 
+import asyncio
 import json
+import socket
+import subprocess
+import sys
 import time
+import urllib.request
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +80,7 @@ class VerificationPipeline:
             self._stage_local_tests,
             self._stage_code_review,
             self._stage_security,
+            self._stage_boot_probe,
             self._stage_final_review,
         )
         for stage in stages:
@@ -203,18 +209,73 @@ class VerificationPipeline:
             evidence={"finding_count": len(findings)},
         )
 
+    async def _stage_boot_probe(
+        self, diff: str, plan: Plan | None, architect: ArchitectAgent | None
+    ) -> StageResult:
+        """Boot the deliverable and probe it over HTTP (M6: 'it runs').
+
+        Triggered when the change ships web entries (HTML files): a static
+        server boots on a free port and the probe requires an HTTP 200.
+        No web entry → the stage skips honestly. A server that never
+        answers fails the run — 'tests green' alone is no longer 'done'.
+        """
+        files = self.changed_files(diff)
+        html = [f for f in files if f.endswith(".html")] or (
+            ["index.html"] if (self._root / "index.html").is_file() else []
+        )
+        if not html:
+            return StageResult("6-boot-probe", True, "no web entry to probe")
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        url = f"http://127.0.0.1:{port}/"
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "http.server",
+                str(port),
+                "--bind",
+                "127.0.0.1",
+                "--directory",
+                str(self._root),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        status: int | None = None
+        try:
+            for _ in range(25):
+                await asyncio.sleep(0.2)
+                try:
+                    with urllib.request.urlopen(url, timeout=2) as resp:
+                        status = resp.status
+                        break
+                except OSError:
+                    continue
+        finally:
+            proc.terminate()
+        ok = status == 200
+        return StageResult(
+            "6-boot-probe",
+            ok,
+            f"HTTP {status} from {url}" if status else f"no HTTP response from {url}",
+            evidence={"url": url, "status": status, "probed": html},
+        )
+
     async def _stage_final_review(
         self, diff: str, plan: Plan | None, architect: ArchitectAgent | None
     ) -> StageResult:
         if architect is None or plan is None:
             return StageResult(
-                "6-final-review", True, "skipped (no architect/plan supplied)", blocking=False
+                "7-final-review", True, "skipped (no architect/plan supplied)", blocking=False
             )
         verdict: ReviewVerdict = await architect.review(
             diff, plan, evidence=stage_report(self.results)
         )
         return StageResult(
-            "6-final-review",
+            "7-final-review",
             verdict.approved,
             verdict.summary or ("approved" if verdict.approved else "; ".join(verdict.issues)),
             evidence={"issues": verdict.issues},

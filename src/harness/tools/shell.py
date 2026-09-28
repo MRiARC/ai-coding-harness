@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-import signal
 from pathlib import Path
 from typing import Any
 
-from harness.tools.base import AsyncExecutableTool, Tool, ToolResult, ToolTier
+from harness.tools.base import AsyncExecutableTool, ToolResult, ToolTier
 
 MAX_SHELL_OUTPUT = 20_000
 DEFAULT_SHELL_TIMEOUT = 60.0
@@ -87,11 +86,13 @@ class RunShellTool(AsyncExecutableTool):
     def validate_input(self, arguments: dict[str, Any]) -> list[str]:
         if not isinstance(arguments.get("command"), str) or not arguments["command"].strip():
             return ["'command' must be a non-empty string"]
-        timeout = arguments.get("timeout_seconds", DEFAULT_SHELL_TIMEOUT)
-        if not isinstance(timeout, int) or not 1 <= timeout <= MAX_SHELL_TIMEOUT:
-            return [f"'timeout_seconds' must be an integer in [1, {MAX_SHELL_TIMEOUT}]"]
+        # safety policy first: a blocked command is denied even if other
+        # arguments are also wrong
         if blocked := _blocked(arguments["command"]):
             return [f"command blocked by safety policy (matched: {blocked})"]
+        timeout = arguments.get("timeout_seconds", DEFAULT_SHELL_TIMEOUT)
+        if not isinstance(timeout, (int, float)) or not 1 <= timeout <= MAX_SHELL_TIMEOUT:
+            return [f"'timeout_seconds' must be a number in [1, {MAX_SHELL_TIMEOUT}]"]
         return []
 
     def check_permissions(self, context: dict[str, Any]) -> bool:
@@ -100,9 +101,7 @@ class RunShellTool(AsyncExecutableTool):
     def execute(self, **_: Any) -> ToolResult:  # pragma: no cover - async path used
         return ToolResult(success=False, error="use execute_async (run_shell is async)")
 
-    async def execute_async(
-        self, command: str, timeout_seconds: int = 60, **_: Any
-    ) -> ToolResult:
+    async def execute_async(self, command: str, timeout_seconds: int = 60, **_: Any) -> ToolResult:
         argv = [*_shell_argv(), command]
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
         try:
@@ -116,9 +115,7 @@ class RunShellTool(AsyncExecutableTool):
         except OSError as exc:
             return ToolResult(success=False, error=f"cannot spawn shell: {exc}")
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout_seconds
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout_seconds)
         except TimeoutError:
             proc.kill()
             return ToolResult(
@@ -126,7 +123,9 @@ class RunShellTool(AsyncExecutableTool):
                 error=f"command exceeded {timeout_seconds}s timeout (killed)",
                 data={"exit_code": None},
             )
-        output = _truncate(f"{stdout.decode(errors='replace')}\n{stderr.decode(errors='replace')}".strip())
+        output = _truncate(
+            f"{stdout.decode(errors='replace')}\n{stderr.decode(errors='replace')}".strip()
+        )
         passed = proc.returncode == 0
         return ToolResult(
             success=passed,

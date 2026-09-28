@@ -88,8 +88,8 @@ async def test_pipeline_all_pass(repo, fake_model_config) -> None:
     assert by_name["2-self-check"].passed
     assert by_name["3-local-tests"].passed
     assert by_name["4-code-review"].passed and not by_name["4-code-review"].blocking
-    assert by_name["5-security"].passed
-    assert by_name["6-final-review"].passed
+    assert by_name["6-boot-probe"].passed
+    assert by_name["7-final-review"].passed
     assert "VERIFIED" in stage_report(results)
 
 

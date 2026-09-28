@@ -233,3 +233,38 @@ async def test_integrity_stage_warns_on_debug_prints(repro_repo: Path) -> None:
     assert integrity.passed
     assert "diff-minimality warnings" in integrity.detail
     assert integrity.evidence["warnings"]
+
+
+@pytest.fixture
+def web_repo(tmp_path: Path) -> Path:
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'demo'\n")
+    (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert True\n")
+    (tmp_path / "index.html").write_text("<html><body>todo app</body></html>\n")
+    return tmp_path
+
+
+async def test_boot_probe_serves_html_and_passes(web_repo: Path) -> None:
+    """Greenfield web deliverable: the stage boots a static server and
+    requires an HTTP 200 — 'it runs' becomes part of verified."""
+    verification = VerificationPipeline(web_repo)
+    diff = "diff --git a/index.html b/index.html\n--- /dev/null\n+++ b/index.html\n+<html>\n"
+    results = await verification.run(diff, PLAN, architect=None)
+    probe = next(r for r in results if r.name == "6-boot-probe")
+    assert probe.passed
+    assert "HTTP 200" in probe.detail
+    assert probe.evidence["status"] == 200
+
+
+async def test_boot_probe_fails_when_nothing_serves(web_repo: Path, monkeypatch) -> None:
+    """A web entry that never answers fails the run honestly."""
+    import harness.verification.pipeline as vp
+
+    monkeypatch.setattr(
+        vp.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("refused"))
+    )
+    verification = VerificationPipeline(web_repo)
+    diff = "diff --git a/index.html b/index.html\n--- /dev/null\n+++ b/index.html\n+<html>\n"
+    results = await verification.run(diff, PLAN, architect=None)
+    probe = next(r for r in results if r.name == "6-boot-probe")
+    assert not probe.passed
+    assert "no HTTP response" in probe.detail

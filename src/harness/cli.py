@@ -203,7 +203,6 @@ def chat_command(args: argparse.Namespace) -> int:
     """Free-form chat: one agent, all tools, persistent session."""
     from harness.chat import chat_loop
     from harness.infrastructure.context_store import SQLiteContextStore
-
     from harness.state import state_root
 
     config = ConfigLoader().load()

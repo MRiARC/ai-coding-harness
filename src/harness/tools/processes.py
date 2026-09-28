@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import os
 import signal
-import time
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +28,7 @@ def _alive(pid: int) -> bool:
     """
     import subprocess
 
-    proc = subprocess.run(
-        ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
-    )
+    proc = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
     stat = proc.stdout.strip()
     return bool(stat) and not stat.startswith("Z")
 
@@ -104,7 +102,9 @@ class StartProcessTool(Tool):
         with log.open("w", encoding="utf-8") as handle:
             try:
                 proc = subprocess.Popen(
-                    ["/bin/zsh", "-c", command] if Path("/bin/zsh").exists() else ["/bin/bash", "-c", command],
+                    ["/bin/zsh", "-c", command]
+                    if Path("/bin/zsh").exists()
+                    else ["/bin/bash", "-c", command],
                     cwd=str(self._root),
                     stdout=handle,
                     stderr=subprocess.STDOUT,
@@ -187,7 +187,7 @@ class StopProcessTool(Tool):
                 # group leader: kill the group, or children (sleep, servers)
                 # survive the parent's death
                 os.killpg(os.getpgid(pid), signal.SIGTERM)
-                for _ in range(10):
+                for _attempt in range(10):
                     if not _alive(pid):
                         break
                     time.sleep(0.1)
@@ -195,8 +195,6 @@ class StopProcessTool(Tool):
                     os.killpg(os.getpgid(pid), signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
-            import time as _time
-
             time.sleep(0.1)
         # the pid file stays: check_process reports "exited" instead of
         # pretending the process never existed
