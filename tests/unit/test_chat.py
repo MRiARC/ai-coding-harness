@@ -329,3 +329,76 @@ def test_chat_immediate_eof_exits_cleanly(chat_config) -> None:
     )
     assert code == 0
     assert any("tokens used" in line for line in out)
+
+
+def test_chat_auth_error_is_friendly_not_fatal(chat_config, monkeypatch) -> None:
+    """Without a key: a clear hint, no traceback, graceful exit."""
+    from harness.infrastructure.model_providers.base import ModelAuthError
+
+    store = MemoryContextStore()
+
+    class AuthFailProvider(FakeProvider):
+        async def generate(self, *args, **kwargs):
+            raise ModelAuthError("environment variable 'AI_API_KEY' is not set")
+
+    agent, _ = build_chat_agent(chat_config, Path("."), store)
+    agent.provider = AuthFailProvider(chat_config.models["default"], responses=[])
+
+    out, write = _capture()
+    code = chat_loop(
+        chat_config,
+        Path("."),
+        store,
+        read=_lines("hello", "/exit"),
+        write=write,
+        agent=agent,
+    )
+    joined = "\n".join(out)
+    assert "[error] environment variable" in joined
+    assert "export AI_API_KEY" in joined
+    assert code == 0
+
+
+def test_chat_transient_error_keeps_session(chat_config) -> None:
+    """A gateway failure prints a hint and the session continues intact."""
+    store = MemoryContextStore()
+
+    class FlakyProvider(FakeProvider):
+        def __init__(self, cfg):
+            super().__init__(cfg, responses=[ModelResponse(content="recovered")])
+            self.failed_once = False
+
+        async def generate(self, *args, **kwargs):
+            if not self.failed_once:
+                self.failed_once = True
+                raise RuntimeError("gateway connection refused")
+            return await super().generate(*args, **kwargs)
+
+    agent, _ = build_chat_agent(chat_config, Path("."), store)
+    agent.provider = FlakyProvider(chat_config.models["default"])  # same ModelConfig
+
+    out, write = _capture()
+    chat_loop(
+        chat_config,
+        Path("."),
+        store,
+        read=_lines("do the thing", "and again", "/exit"),
+        write=write,
+        agent=agent,
+    )
+    joined = "\n".join(out)
+    assert "model call failed" in joined and "gateway connection refused" in joined
+    assert "foreman> recovered" in joined  # the session continued after the failure
+
+
+def test_chat_meter_is_per_session(chat_config) -> None:
+    """Two sessions from the same scope report their OWN spend."""
+    store = MemoryContextStore()
+
+    agent1, _ = build_chat_agent(chat_config, Path("."), store)
+    agent1.governor.record("foreman-chat", "fake", 1000, 0)
+    assert agent1.governor.used_tokens() == 1000
+
+    agent2, _ = build_chat_agent(chat_config, Path("."), store)
+    assert agent2.governor.used_tokens() == 0  # fresh correlation id
+    assert agent1.governor.correlation_id != agent2.governor.correlation_id

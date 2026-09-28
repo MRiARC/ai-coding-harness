@@ -18,6 +18,7 @@ from harness.config import HarnessConfig
 from harness.engine.budget import BudgetGovernor
 from harness.infrastructure.context_store import ContextStore
 from harness.infrastructure.model_providers import create_model_provider
+from harness.infrastructure.model_providers.base import ModelAuthError
 from harness.tools.registry import build_default_tools
 
 CHAT_TASK = "chat-session"
@@ -29,13 +30,20 @@ def build_chat_agent(
     scope: Path,
     store: ContextStore,
     max_steps: int | None = None,
+    correlation_id: str | None = None,
 ) -> tuple[LLMAgent, Any]:
-    """The chat agent: one generalist, every tool, scoped to `scope`."""
+    """The chat agent: one generalist, every tool, scoped to `scope`.
+
+    Each session gets its own correlation id so the token meter reports
+    THIS session's spend, not every chat ever run from the scope.
+    """
+    import time
+
     from harness.agents.specialists import build_agent
 
     model_cfg = config.models["default"]
     provider = create_model_provider(model_cfg)
-    governor = BudgetGovernor(store, config.budget, CHAT_TASK)
+    governor = BudgetGovernor(store, config.budget, correlation_id or f"chat-{time.time_ns()}")
     tools = build_default_tools(scope)
     steps = max_steps if max_steps is not None else config.run.max_steps
     agent = build_agent(
@@ -93,7 +101,17 @@ def chat_loop(
             write("[new session] context cleared; same tools, same scope.")
             continue
         task = Task(id=CHAT_TASK, title=line[:80], description=line)
-        result = asyncio.run(agent.execute_task(task))
+        try:
+            result = asyncio.run(agent.execute_task(task))
+        except ModelAuthError as exc:
+            write(f"[error] {exc}")
+            write("[hint] export AI_API_KEY=<your key> and start the session again.")
+            break
+        except Exception as exc:
+            # the session context is intact; a retry usually just works
+            write(f"[error] model call failed: {str(exc)[:300]}")
+            write("[hint] your context is intact — try the request again.")
+            continue
         write(f"foreman> {result.summary or result.error or '(no output)'}")
         if result.error and "step limit" in result.error:
             write("[hint] step limit hit — ask me to continue, or raise run.max_steps.")
