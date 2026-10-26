@@ -32,3 +32,6 @@ logs/
 gateway/gateway
 gateway/cmd/tui/tui-go
 bin/
+
+# user's chat-mode demo artifact (lives on Desktop too)
+todo-app.html

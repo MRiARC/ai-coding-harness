@@ -19,6 +19,8 @@ from harness.tools.filesystem import (
 )
 from harness.tools.graph import RepoGraphTool
 from harness.tools.knowledge import KnowledgeSearchTool
+from harness.tools.processes import CheckProcessTool, StartProcessTool, StopProcessTool
+from harness.tools.shell import RunShellTool
 from harness.tools.vcs import GitAddTool, GitBranchTool, GitDiffTool, GitLogTool, GitStatusTool
 
 
@@ -78,3 +80,19 @@ TOOL_ALIASES: dict[str, str] = {
     "write_file": "filesystem_write",
     "symbols": "repo_graph",
 }
+
+
+def build_work_tools(scope: Path, state_root: Path) -> list[Tool]:
+    """The work-mode toolbelt: the eval tools plus a real shell and
+    long-running process control. Never used by the graded eval path
+    (spec v1.1 §18 R2)."""
+    tools = list(build_default_tools(scope))
+    tools.extend(
+        [
+            RunShellTool(scope),
+            StartProcessTool(scope, state_root),
+            CheckProcessTool(scope, state_root),
+            StopProcessTool(scope, state_root),
+        ]
+    )
+    return tools
