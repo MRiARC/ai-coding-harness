@@ -100,10 +100,20 @@ def chat_loop(
         if line.startswith("!"):
             import subprocess as _sp
 
-            proc = _sp.run(
-                line[1:], shell=True, cwd=str(scope), capture_output=True, text=True, timeout=120
-            )
-            write((proc.stdout or proc.stderr or "(no output)")[-4000:])
+            try:
+                proc = _sp.run(
+                    line[1:],
+                    shell=True,
+                    cwd=str(scope),
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                write((proc.stdout or proc.stderr or "(no output)")[-4000:])
+            except _sp.TimeoutExpired:
+                write("[timeout] command exceeded 120s limit.")
+            except KeyboardInterrupt:
+                write("[interrupted] command cancelled.")
             continue
         if line == "/new":
             reset_session(store)

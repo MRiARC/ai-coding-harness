@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 from pathlib import Path
 from typing import Any
 
@@ -41,12 +42,25 @@ def _truncate(text: str) -> str:
     return text[:MAX_SHELL_OUTPUT] + f"\n... [truncated at {MAX_SHELL_OUTPUT} bytes]"
 
 
+def _is_dangerous_rm(command: str) -> bool:
+    import re
+
+    if re.search(r"\brm\b", command):
+        has_rec = bool(re.search(r"(-[a-zA-Z]*[rR]|--recursive)", command))
+        has_force = bool(re.search(r"(-[a-zA-Z]*f|--force)", command))
+        if has_rec and has_force:
+            return True
+    return False
+
+
 def _blocked(command: str) -> str | None:
     import re
 
     for pattern in BLOCKLIST:
         if re.search(pattern, command, re.IGNORECASE):
             return pattern
+    if _is_dangerous_rm(command):
+        return "rm (recursive and force)"
     return None
 
 
@@ -111,13 +125,18 @@ class RunShellTool(AsyncExecutableTool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
+                start_new_session=True,
             )
         except OSError as exc:
             return ToolResult(success=False, error=f"cannot spawn shell: {exc}")
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout_seconds)
         except TimeoutError:
-            proc.kill()
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                proc.kill()
+            await proc.wait()
             return ToolResult(
                 success=False,
                 error=f"command exceeded {timeout_seconds}s timeout (killed)",

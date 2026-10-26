@@ -432,3 +432,34 @@ def test_chat_shell_passthrough_and_interrupt(chat_config) -> None:
     assert "passthrough-works" in joined  # ! ran locally
     assert "[interrupted] turn cancelled" in joined  # KI mid-turn cancelled
     assert len(agent.provider.calls) == 0  # the KI turn never reached the model
+
+
+def test_chat_shell_passthrough_timeout_and_interrupt(chat_config, monkeypatch) -> None:
+    """!command handles TimeoutExpired and KeyboardInterrupt cleanly."""
+    store = MemoryContextStore()
+    agent, _ = build_chat_agent(chat_config, Path("."), store)
+    import subprocess as _sp
+
+    calls = 0
+
+    def fake_run(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise _sp.TimeoutExpired(cmd="sleep", timeout=120)
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(_sp, "run", fake_run)
+
+    out, write = _capture()
+    chat_loop(
+        chat_config,
+        Path("."),
+        store,
+        read=_lines("!slow", "!cancel", "/exit"),
+        write=write,
+        agent=agent,
+    )
+    joined = "\n".join(out)
+    assert "[timeout] command exceeded 120s limit." in joined
+    assert "[interrupted] command cancelled." in joined

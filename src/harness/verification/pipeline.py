@@ -225,11 +225,12 @@ class VerificationPipeline:
         )
         if not html:
             return StageResult("6-boot-probe", True, "no web entry to probe")
+        entry = html[0].lstrip("/")
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
         sock.close()
-        url = f"http://127.0.0.1:{port}/"
+        url = f"http://127.0.0.1:{port}/{entry}"
         proc = subprocess.Popen(
             [
                 sys.executable,
@@ -256,6 +257,11 @@ class VerificationPipeline:
                     continue
         finally:
             proc.terminate()
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
         ok = status == 200
         return StageResult(
             "6-boot-probe",

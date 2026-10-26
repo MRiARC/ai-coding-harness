@@ -268,3 +268,29 @@ async def test_boot_probe_fails_when_nothing_serves(web_repo: Path, monkeypatch)
     probe = next(r for r in results if r.name == "6-boot-probe")
     assert not probe.passed
     assert "no HTTP response" in probe.detail
+
+
+async def test_boot_probe_terminates_with_kill_escalation(web_repo: Path, monkeypatch) -> None:
+    """If proc.wait times out after terminate, it escalates to kill()."""
+    import subprocess
+
+    import harness.verification.pipeline as vp
+
+    orig_popen = vp.subprocess.Popen
+
+    class SlowProcess(orig_popen):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._waited = False
+
+        def wait(self, timeout=None):
+            if not self._waited:
+                self._waited = True
+                raise subprocess.TimeoutExpired(cmd="http.server", timeout=timeout or 2.0)
+            return super().wait(timeout=timeout)
+
+    monkeypatch.setattr(vp.subprocess, "Popen", SlowProcess)
+    verification = VerificationPipeline(web_repo)
+    diff = "diff --git a/index.html b/index.html\n--- /dev/null\n+++ b/index.html\n+<html>\n"
+    probe = await verification._stage_boot_probe(diff, PLAN, architect=None)
+    assert probe.passed

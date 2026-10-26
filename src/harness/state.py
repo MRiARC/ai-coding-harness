@@ -9,6 +9,7 @@ chatting against your Desktop never litters it with hidden harness folders.
 from __future__ import annotations
 
 import hashlib
+import tempfile
 from pathlib import Path
 
 BROAD_DIR_NAMES = {
@@ -22,6 +23,25 @@ BROAD_DIR_NAMES = {
     "Public",
 }
 
+TEMP_ROOTS = (
+    Path("/tmp"),
+    Path("/private/tmp"),
+    Path("/var/folders"),
+    Path("/private/var/folders"),
+    Path(tempfile.gettempdir()),
+)
+
+
+def _is_temp_dir(scope: Path) -> bool:
+    resolved = scope.resolve()
+    for root in TEMP_ROOTS:
+        try:
+            resolved.relative_to(root.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
 
 def is_broad_scope(scope: Path) -> bool:
     """Whether the scope is too broad/general to hold state inside itself."""
@@ -32,7 +52,7 @@ def is_broad_scope(scope: Path) -> bool:
     try:
         rel = scope.relative_to(home)
     except ValueError:
-        return str(scope).startswith(("/tmp", "/private/tmp", "/var/folders"))
+        return _is_temp_dir(scope)
     # top-level home folders (Desktop/…) or anything directly under home
     return len(rel.parts) == 1 or rel.parts[0] in BROAD_DIR_NAMES
 

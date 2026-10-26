@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.tools.base import Tool, ToolResult, ToolTier
+from harness.tools.shell import _blocked
 
 MAX_LOG_TAIL = 30
 
@@ -80,8 +81,11 @@ class StartProcessTool(Tool):
         name = arguments.get("name")
         if not isinstance(name, str) or not name.replace("-", "").replace("_", "").isalnum():
             errors.append("'name' must be alphanumeric with - or _")
-        if not isinstance(arguments.get("command"), str) or not arguments["command"].strip():
+        command = arguments.get("command")
+        if not isinstance(command, str) or not command.strip():
             errors.append("'command' must be a non-empty string")
+        elif (pat := _blocked(command)) is not None:
+            errors.append(f"command blocked by safety policy ({pat})")
         return errors
 
     def check_permissions(self, context: dict[str, Any]) -> bool:

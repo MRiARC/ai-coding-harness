@@ -7,6 +7,7 @@ command, scoped, timeout-capped, blocklist-guarded) and process control
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,7 @@ def test_broad_scopes_go_to_foreman_home(tmp_path: Path, monkeypatch) -> None:
         assert is_broad_scope(scope)
     tmp_scope = Path("/tmp/whatever")
     assert is_broad_scope(tmp_scope)
+    assert not is_broad_scope(Path("/tmp-project/repo"))
 
 
 # -- run_shell -----------------------------------------------------------------
@@ -93,11 +95,35 @@ def test_run_shell_validation_and_blocklist(tmp_path: Path) -> None:
     assert "timeout_seconds" in tool.validate_input({"command": "ls", "timeout_seconds": 999})[0]
     blocked = tool.validate_input({"command": "sudo rm -rf /usr"})
     assert any("safety policy" in err for err in blocked)
+    assert any("safety policy" in err for err in tool.validate_input({"command": "rm -f -r /"}))
+    assert any(
+        "safety policy" in err
+        for err in tool.validate_input({"command": "rm --recursive --force /"})
+    )
+    start = StartProcessTool(tmp_path, tmp_path)
+    assert any(
+        "safety policy" in err
+        for err in start.validate_input({"name": "bad", "command": "sudo rm -rf /"})
+    )
 
 
 def test_run_shell_timeout_kills(tmp_path: Path) -> None:
     import asyncio
 
+    tool = RunShellTool(tmp_path)
+    outcome = asyncio.run(tool.execute_async(command="sleep 5", timeout_seconds=1))
+    assert not outcome.success and "timeout" in (outcome.error or "")
+
+
+def test_run_shell_timeout_killpg_fallback(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+
+    import harness.tools.shell as shell_mod
+
+    def fake_killpg(pid, sig):
+        raise ProcessLookupError("already gone")
+
+    monkeypatch.setattr(shell_mod.os, "killpg", fake_killpg)
     tool = RunShellTool(tmp_path)
     outcome = asyncio.run(tool.execute_async(command="sleep 5", timeout_seconds=1))
     assert not outcome.success and "timeout" in (outcome.error or "")
@@ -174,13 +200,11 @@ def test_process_validation(proc_tools, tmp_path: Path) -> None:
     assert not bad.success and "cannot start process" in (bad.error or "")
 
 
-def test_state_root_non_home(tmp_path: Path, monkeypatch) -> None:
+def test_state_root_non_home(monkeypatch) -> None:
     """A scope outside home (e.g. a repo on another volume) keeps .harness."""
-    home = tmp_path / "home"
-    home.mkdir()
+    home = Path("/home/testuser").resolve()
     monkeypatch.setattr(Path, "home", lambda: home)
-    other = tmp_path / "other-volume" / "repo"
-    other.mkdir(parents=True)
+    other = Path("/mnt/data/repo").resolve()
     assert state_root(other) == other / ".harness"
 
 
@@ -206,6 +230,7 @@ def test_stop_escalates_to_sigkill(tmp_path: Path, monkeypatch) -> None:
     stop = StopProcessTool(scope, tmp_path / "st")
 
     start.execute(name="stubborn", command="sleep 30")
+    real_pid = start._files.read_pid("stubborn")
 
     sigterms = {"n": 0}
     real_alive = proc_mod._alive
@@ -219,8 +244,13 @@ def test_stop_escalates_to_sigkill(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(proc_mod, "_alive", stubborn_alive)
     monkeypatch.setattr(proc_mod.os, "killpg", counting_killpg)
-    stop.execute(name="stubborn")
-    assert sigterms["n"] == 1  # TERM once, then the loop exhausted → KILL
+    try:
+        stop.execute(name="stubborn")
+        assert sigterms["n"] == 1  # TERM once, then the loop exhausted → KILL
+    finally:
+        if real_pid:
+            with contextlib.suppress(OSError):
+                proc_mod.os.kill(real_pid, proc_mod.signal.SIGKILL)
 
     monkeypatch.setattr(proc_mod, "_alive", real_alive)
 
@@ -280,6 +310,7 @@ def test_stop_sigkill_escalation_fires(tmp_path: Path, monkeypatch) -> None:
     stop = StopProcessTool(scope, tmp_path / "st2")
 
     start.execute(name="immortal", command="sleep 30")
+    real_pid = start._files.read_pid("immortal")
 
     kills = {"term": 0, "kill": 0}
     monkeypatch.setattr(proc_mod, "_alive", lambda pid: True)
@@ -291,8 +322,13 @@ def test_stop_sigkill_escalation_fires(tmp_path: Path, monkeypatch) -> None:
             kills["term" if sig == proc_mod.signal.SIGTERM else "kill"] + 1,
         ),
     )
-    stop.execute(name="immortal")
-    assert kills["term"] == 1 and kills["kill"] == 1
+    try:
+        stop.execute(name="immortal")
+        assert kills["term"] == 1 and kills["kill"] == 1
+    finally:
+        if real_pid:
+            with contextlib.suppress(OSError):
+                proc_mod.os.kill(real_pid, proc_mod.signal.SIGKILL)
 
 
 def test_stop_race_process_dies_between_check_and_kill(tmp_path: Path, monkeypatch) -> None:
@@ -305,10 +341,16 @@ def test_stop_race_process_dies_between_check_and_kill(tmp_path: Path, monkeypat
     start = StartProcessTool(scope, tmp_path / "st3")
     stop = StopProcessTool(scope, tmp_path / "st3")
     start.execute(name="racy", command="sleep 30")
+    real_pid = start._files.read_pid("racy")
 
     def gone(pg: int) -> int:
         raise ProcessLookupError("died in the race window")
 
     monkeypatch.setattr(proc_mod.os, "getpgid", gone)
-    result = stop.execute(name="racy")
-    assert result.success and "stopped" in result.output
+    try:
+        result = stop.execute(name="racy")
+        assert result.success and "stopped" in result.output
+    finally:
+        if real_pid:
+            with contextlib.suppress(OSError):
+                proc_mod.os.kill(real_pid, proc_mod.signal.SIGKILL)
